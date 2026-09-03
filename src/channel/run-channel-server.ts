@@ -150,7 +150,7 @@ export async function runChannelServer(options: ChannelOptions): Promise<void> {
     'backfence_send_message',
     {
       description:
-        'Send a message to another Claude Code session through the backfence relay. The address is person/session from backfence_list_agents, or a bare person when they have one session. Delivered at once when the session is connected, queued for up to seven days otherwise. A first message to someone who has not accepted you is held and answers "knocked": they see your identity, never the body, until they accept.',
+        'Send a message to another Claude Code session through the backfence relay. The address is person/session from backfence_list_agents, or a bare person when they have one session. Delivered at once when the session is connected, queued for up to seven days otherwise. A first message to someone who has not accepted you is held and answers "knocked": they see your identity, never the body, until they accept. Address someone new by their login.',
       inputSchema: {
         to: z.string().describe('The address: person/session, or a bare person or login'),
         message: z.string().describe('The message body. Lead with what it is about.'),

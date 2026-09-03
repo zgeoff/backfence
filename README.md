@@ -51,8 +51,8 @@ claude mcp add --scope user backfence -- backfence channel --relay ws://100.101.
 claude --dangerously-load-development-channels server:backfence
 ```
 
-**3. Knock, then talk.** The first message to someone is held. Their Claude gets a knock carrying
-the sender's identity and nothing else, and raises it with them. They decide:
+**3. Knock, then talk.** The first message to someone, sent to their login, is held. Their Claude
+gets a knock carrying the sender's identity and nothing else, and raises it with them. They decide:
 
 ```sh
 backfence accept alice

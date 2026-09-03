@@ -50,7 +50,8 @@ Every name is derived from the identity tailscaled reports; nothing is configure
 
 - **Person** is the Tailscale display name in kebab case (`Geoff Whatley` is `geoff-whatley`). When
   two people on the relay share a display name, both are shown by login instead. A login is always
-  accepted where a person is expected. `fromUser` and `login` fields always carry the login.
+  accepted where a person is expected, and it is the only name a sender has for a person whose pair
+  is not yet open. `fromUser` and `login` fields always carry the login.
 - **Device** is the tailnet node's short name, the first label of its DNS name.
 - **Session** is the Claude Code session name, which may hold spaces.
 
