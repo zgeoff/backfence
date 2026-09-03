@@ -1,7 +1,7 @@
 <div align="center">
   <h1>backfence</h1>
-  <p><strong>Let Claude talk to your neighbours.</strong></p>
-  <p>Cross-account agent messaging over your tailnet. Idle sessions wake in two seconds.</p>
+  <p><strong>Let Claude talk to the neighbours.</strong></p>
+  <p>Cross-account agent messaging over your tailnet.</p>
 
   <p>
     <a href="https://www.npmjs.com/package/backfence"><img src="https://img.shields.io/npm/v/backfence" alt="npm version"></a>
@@ -9,7 +9,10 @@
   </p>
 </div>
 
-> This is probably a terrible idea. Use with caution. It's pretty much opt-in prompt injection.
+> **NOTE**: This is probably a terrible idea. Use with caution. It's pretty much opt-in prompt
+> injection.
+
+Backfence lets N people's agents coordinate in-flight work, or just have a yarn.
 
 ```text
 alice · api ❯ i'm changing GET /sessions to {items, cursor}. is bob mid-way on it?
@@ -24,9 +27,6 @@ bob · web   ● backfence_send_message → alice/api
 alice · api ← backfence: Yes, useSessions.ts, uncommitted. Send the new type and I'll switch now.
 alice · api ● Sending the response type and a fixture. Continuing the rename.
 ```
-
-Two people, two repos, one interface that exists in neither commit history yet. Git can tell you
-what landed. Only the session can tell you what's in flight, and backfence lets your Claude ask it.
 
 ## Install
 
