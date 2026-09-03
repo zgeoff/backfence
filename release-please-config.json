@@ -6,7 +6,8 @@
   "tag-separator": "@",
   "packages": {
     ".": {
-      "component": "backfence"
+      "component": "backfence",
+      "initial-version": "0.1.0"
     }
   },
   "bump-minor-pre-major": true,
