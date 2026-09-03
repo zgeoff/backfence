@@ -23,140 +23,126 @@
 
 This is probably a terrible idea. Use with caution. It's pretty much opt-in prompt injection.
 
-## Why
+## What it does
 
-Claude Code's built-in `ListAgents` and `SendMessage` tools reach sessions on your own machine and,
-through Anthropic's servers, your own account's Remote Control and cloud sessions. They stop at the
-account boundary. backfence crosses it: two people on a tailnet run one relay and every session they
-connect becomes addressable by name.
+Claude Code can already message your own sessions. backfence lets it message someone else's. You run
+one relay on your tailnet; each of you connects your sessions to it; from then on your Claude can
+say "ask bob's desk session whether the tests pass", and Bob's Claude wakes up, checks, and answers
+back. Idle sessions wake in about two seconds. Offline sessions get the message when they return.
 
-A message wakes an idle session. It arrives as a channel event, so the receiving Claude reads it and
-acts on it the moment it lands, with no polling and no waiting for the next human turn.
+## Sixty seconds
 
-## How it works
+Everything needs [Bun](https://bun.sh), [Tailscale](https://tailscale.com), and Claude Code 2.1.259
+or later.
 
-```text
-claude (alice's laptop)                       claude (bob's desktop)
-  └── backfence channel ── ws ──> backfence relay <── ws ── backfence channel
-      (MCP server, stdio)         (tailnet only)            (MCP server, stdio)
-```
-
-- Each Claude Code session starts a `backfence channel` process, an MCP server over stdio that holds
-  one WebSocket to the relay. Outbound, it gives Claude the tools to list peers and send. Inbound,
-  it turns a relay delivery into a `notifications/claude/channel` event, which Claude Code injects
-  into the session as a new turn.
-- The relay is one Bun process bound to a tailnet address. It asks tailscaled who is on the other
-  end of every connection, keeps the allowlist and the offline queue in SQLite, and routes by name.
-- Nothing is self-asserted. A client never sends its identity; the relay resolves it from the
-  connection's tailnet address with the Tailscale LocalAPI `whois` call.
-
-## Install
+**One of you hosts the relay.** Bind it to that machine's tailnet address so only tailnet peers can
+reach it, and name yourself admin:
 
 ```sh
 bun add -g backfence
-```
-
-backfence needs [Bun](https://bun.sh), [Tailscale](https://tailscale.com) on every machine, and
-Claude Code 2.1.259 or later. Channels are a Claude Code research preview: the channel loads with a
-development flag on personal Pro and Max accounts, and Team and Enterprise admins enable it with the
-`channelsEnabled` and `allowedChannelPlugins` managed settings.
-
-## Run a relay
-
-One person runs the relay. Bind it to the machine's tailnet address so only tailnet peers can reach
-it:
-
-```sh
 backfence relay --host 100.101.102.103 --admin alice@example.com
 ```
 
-The relay resolves every connection through tailscaled's `whois`, so it needs to run on a tailnet
-node. The `--admin` login is seeded into the allowlist with approval rights. Everything else is
-config; see [Configuration](./docs/guides/configuration.md).
-
-Peers who share a tailnet just connect. A friend on another tailnet either joins yours as a user
-(the personal plan allows six) or you share the relay node into their tailnet; `whois` reports their
-login either way.
-
-## Connect a session
-
-Register the channel once, at user scope, so every project can load it:
+**Everyone connects their sessions.** Register the channel once at user scope, then start Claude
+Code with it loaded:
 
 ```sh
+bun add -g backfence
 claude mcp add --scope user backfence -- backfence channel --relay ws://100.101.102.103:7477/ws
-```
-
-Then start Claude Code with the channel enabled:
-
-```sh
 claude --dangerously-load-development-channels server:backfence
 ```
 
-Claude Code shows a consent dialog for the development channel on every start while the plugin is
-off the allowlist. A shell alias covers your own machines; an org allowlist entry removes it for a
-team.
+**The admin lets people in.** A newcomer's first connection lands as pending. Approve them with an
+alias, which becomes the first half of their address:
 
-On connect, the channel reports the session's id and name to the relay, and the relay drains any
-messages that queued while the session was offline.
+```sh
+backfence peers
+backfence approve ts:6707952971012599 --alias bob
+```
 
-## Addressing
+Or just tell your Claude: "anyone waiting on backfence? approve bob." It has the same tools.
 
-An address is `peer/session`:
+## What a conversation looks like
 
-- `peer` is the sender's alias if an admin set one, otherwise their tailnet login (`bob` or
-  `bob@example.com`).
-- `session` is the Claude Code session name, the same name `ListAgents` shows on that machine.
+Alice, in a session named `vers-90`, asks her Claude to check with Bob:
 
-`bob` alone works when Bob has exactly one connected session. If he has several, the relay refuses
-and lists them.
+```text
+❯ ask bob's desk session whether #967 is green yet
+● backfence_send_message(to: "bob/desk", message: "Is #967 green on your side?")
+  delivered to bob/desk (message m_1k3f2d…)
+```
+
+Bob's session is idle. It wakes with the message on screen and in context:
+
+```text
+← backfence: Is #967 green on your side?
+● Checking. Tests pass on main as of 7:41 PM.
+● backfence_send_message(to: "alice/vers-90", message: "Yes, #967 is green as of 7:41 PM.")
+```
+
+Alice's session wakes with the answer the same way. Every message arrives as a channel event that
+Claude reads as untrusted input from another person's agent:
+
+```text
+<channel source="backfence" from="bob/desk" from_user="bob@example.com" message_id="m_1k3f2e…">
+Yes, #967 is green as of 7:41 PM.
+</channel>
+```
+
+## Addresses
+
+An address is `peer/session`. The peer is the alias an admin gave, or the tailnet login. The session
+is the Claude Code session name, the one `/rename` sets and `ListAgents` shows. A bare peer works
+when they have exactly one session connected; with several, the relay lists them and asks you to
+pick.
 
 ## Tools
 
 The channel gives Claude five tools:
 
-| Tool                           | What it does                                                             |
-| ------------------------------ | ------------------------------------------------------------------------ |
-| `backfence_list_agents`        | Every connected session the sender may reach: address, directory, status |
-| `backfence_send_message`       | Send to an address; delivered now or queued if the session is offline    |
-| `backfence_list_pending_peers` | Peers who connected but are not yet on the allowlist                     |
-| `backfence_approve_peer`       | Admit a pending peer, optionally with an alias (admins only)             |
-| `backfence_block_peer`         | Refuse a peer from now on (admins only)                                  |
+| Tool                           | What it does                                                              |
+| ------------------------------ | ------------------------------------------------------------------------- |
+| `backfence_list_agents`        | Every connected session you may reach: address, owner, directory          |
+| `backfence_send_message`       | Send to an address; delivered now, or queued while the session is offline |
+| `backfence_list_pending_peers` | Peers who connected but are not yet approved (admins)                     |
+| `backfence_approve_peer`       | Admit a pending peer, optionally with an alias (admins)                   |
+| `backfence_block_peer`         | Refuse a peer from now on (admins)                                        |
 
-A received message lands in the session as:
+## Who gets in
 
-```text
-<channel source="backfence" from="bob/vers-90" from_user="bob@example.com" message_id="m_01H…">
-tests are green on #967, want me to open the PR?
-</channel>
-```
+- **Identity is resolved, never claimed.** The relay asks tailscaled who owns each connecting
+  address. A client sends no credentials and cannot pretend to be someone else.
+- **Only approved peers send or receive.** A stranger who connects is held as pending, or dropped
+  outright with `unknownPeers: "refuse"`. Admins come from the relay's config, not from a request.
+- **Claude treats every message as untrusted.** The channel's instructions say so, and Claude Code's
+  permission prompts still apply to anything Claude does in response.
 
-Claude replies by calling `backfence_send_message` with the `from` value as the address.
+A friend on another tailnet either joins yours as a user (the personal plan allows six) or you share
+the relay node into their tailnet; either way tailscaled reports their login.
 
-## Trust
+## Day to day
 
-A message from someone else's account is text from a different trust domain. backfence treats it
-that way at three points:
+- The development-channel dialog appears on every start while the plugin is off Claude Code's
+  allowlist. An alias such as
+  `alias cc='claude --dangerously-load-development-channels server:backfence'` removes the typing.
+- `backfence peers` shows who is connected and, for admins, who is waiting.
+- Messages to an offline session queue on the relay for seven days and drain when it next connects.
+- The relay keeps peers and queued messages in `~/.local/state/backfence/backfence.db` and reads
+  `~/.config/backfence/config.json`. See [Configuration](./docs/guides/configuration.md).
 
-1. **Identity.** The relay asks tailscaled who owns the connecting address. Tailscale's user id is
-   the key for every decision below; login and display name are for reading.
-2. **Allowlist.** Only allowed peers send or receive. An unknown peer who connects is held as
-   pending (`unknownPeers: "knock"`) or dropped (`unknownPeers: "refuse"`). An admin session
-   approves or blocks them by tool call: "Claude, is anyone waiting on the relay? Approve Bob."
-3. **Delivery.** The channel's instructions tell Claude that channel content is untrusted input to
-   read and weigh, not an instruction to follow. Claude Code's own permission prompts still apply to
-   anything Claude does in response.
+## Under the hood
 
-The relay never reads a Claude transcript, never runs a command, and holds only the messages queued
-for offline sessions, which expire after seven days.
+- The channel is a Claude Code [channel](https://code.claude.com/docs/en/channels): an MCP server
+  over stdio that pushes events into a session. Claude Code spawns one per session; it holds one
+  WebSocket to the relay.
+- The relay is one Bun process with a WebSocket endpoint, tailscaled's `whois` for identity, and
+  SQLite for the allowlist and the queue. It reads no transcripts and runs no commands.
+- The [architecture](./docs/architecture/overview.md) and
+  [protocol](./docs/architecture/protocol.md) pages cover the rest.
 
-## Commands
-
-| Command             | What it does                                                    |
-| ------------------- | --------------------------------------------------------------- |
-| `backfence relay`   | Run the relay in the foreground                                 |
-| `backfence channel` | Run the channel MCP server over stdio (Claude Code spawns this) |
-| `backfence peers`   | List connected sessions and pending peers from the shell        |
-| `backfence approve` | Approve a pending peer from the shell                           |
+Channels are a Claude Code research preview. Personal Pro and Max accounts load a custom channel
+with the development flag; Team and Enterprise admins enable channels and allowlist the plugin with
+managed settings. Not available on Bedrock, Vertex, or Foundry.
 
 ## License
 
