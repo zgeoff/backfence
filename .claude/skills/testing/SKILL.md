@@ -57,8 +57,9 @@ instead of asking tailscaled; everything after that point is production code.
   the socket — never a stubbed connect.
 - Failure paths are contract: assert rejections directly —
   `expect(promise).rejects.toMatchObject({ code })` — and test each declared error code.
-- Authorization rules are tested in pairs: the positive ("an admin approves") and the named negative
-  ("a non-admin gets `unauthorized`") are two tests, never one test with a branch.
+- Consent rules are tested in pairs: the positive ("accept delivers the held message") and the named
+  negative ("a send to someone you declined gets `not_accepted`") are two tests, never one test with
+  a branch.
 - Never spawn the real `claude` binary. The channel's contract with Claude Code (capability name,
   notification method, meta key rules) is verified by hand against a real session before a change to
   it merges.

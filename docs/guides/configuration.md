@@ -9,9 +9,7 @@ override the file.
   "relay": {
     "host": "127.0.0.1",
     "port": 7477,
-    "identity": "tailscale",
-    "unknownPeers": "knock",
-    "admins": []
+    "identity": "tailscale"
   },
   "channel": {
     "relay": "ws://127.0.0.1:7477/ws"
@@ -21,13 +19,11 @@ override the file.
 
 ## Relay
 
-| Key            | Flag               | Values             | Meaning                                                                       |
-| -------------- | ------------------ | ------------------ | ----------------------------------------------------------------------------- |
-| `host`         | `--host`           | address            | Bind address. Use the machine's tailnet address so only peers reach it.       |
-| `port`         | `--port`           | number             | Bind port.                                                                    |
-| `identity`     | `--identity`       | `tailscale`, `dev` | Where identity comes from. `dev` trusts two request headers and is for tests. |
-| `unknownPeers` | `--unknown-peers`  | `knock`, `refuse`  | Hold a first-time peer as pending, or drop the connection.                    |
-| `admins`       | `--admin` (repeat) | logins             | Peers seeded as allowed with approval rights on their first connection.       |
+| Key        | Flag         | Values             | Meaning                                                                   |
+| ---------- | ------------ | ------------------ | ------------------------------------------------------------------------- |
+| `host`     | `--host`     | address            | Bind address. Use the machine's tailnet address so only peers reach it.   |
+| `port`     | `--port`     | number             | Bind port.                                                                |
+| `identity` | `--identity` | `tailscale`, `dev` | Where identity comes from. `dev` trusts request headers and is for tests. |
 
 The database path defaults to `~/.local/state/backfence/backfence.db`; `--db` overrides it.
 
@@ -42,6 +38,7 @@ its session name from Claude Code's session registry. `BACKFENCE_SESSION_NAME` o
 
 ## Identity in dev mode
 
-With `identity: "dev"` the relay reads `x-backfence-dev-login` and `x-backfence-dev-name` from the
-WebSocket upgrade request and keys the peer as `dev:<login>`. A connection without the login header
-closes with code `4001`. Never expose a dev-mode relay beyond localhost.
+With `identity: "dev"` the relay reads `x-backfence-dev-login`, `x-backfence-dev-name`, and
+`x-backfence-dev-node` from the WebSocket upgrade request and keys the peer as `dev:<login>`. A
+connection without the login header is refused with code `4001`. Never expose a dev-mode relay
+beyond localhost.

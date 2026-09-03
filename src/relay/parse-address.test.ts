@@ -2,14 +2,12 @@ import { expect, test } from 'bun:test';
 import { parseAddress } from './parse-address';
 
 test.each([
-  ['bob/desk', { peer: 'bob', session: 'desk' }],
-  ['bob', { peer: 'bob', session: null }],
-  [
-    'bob@example.com/PIM catalogue gaps',
-    { peer: 'bob@example.com', session: 'PIM catalogue gaps' },
-  ],
-  ['  bob / desk ', { peer: 'bob', session: 'desk' }],
-  ['bob/', { peer: 'bob', session: null }],
+  ['bob/desk', { person: 'bob', rest: 'desk' }],
+  ['bob', { person: 'bob', rest: null }],
+  ['bob/laptop/desk', { person: 'bob', rest: 'laptop/desk' }],
+  ['bob@example.com/PIM catalogue gaps', { person: 'bob@example.com', rest: 'PIM catalogue gaps' }],
+  ['  bob / desk ', { person: 'bob', rest: 'desk' }],
+  ['bob/', { person: 'bob', rest: null }],
   ['/desk', null],
   ['', null],
 ])('it parses %s', (raw, expected) => {

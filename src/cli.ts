@@ -1,10 +1,9 @@
 // backfence CLI entry: `relay` serves the tailnet, `channel` is the MCP
-// server Claude Code spawns, and `peers` and `approve` are the shell views
-// of what the channel's tools do.
+// server Claude Code spawns, and the rest are the shell views of what the
+// channel's tools do.
 import { defineCommand, runMain } from 'citty';
 import pkg from '../package.json';
 import { RelayClient } from './channel/relay-client';
-import { RelayError } from './protocol/relay-error';
 import { dbFile, loadConfig } from './shared/config';
 
 const build = `backfence/${pkg.version}`;
@@ -22,36 +21,25 @@ const main = defineCommand({
         args: {
           host: { type: 'string', description: 'Address to bind; use the tailnet address' },
           port: { type: 'string', description: 'Port to bind' },
-          db: { type: 'string', description: 'SQLite file for peers and queued messages' },
+          db: { type: 'string', description: 'SQLite file for consent edges and messages' },
           identity: { type: 'string', description: 'tailscale (default) or dev' },
-          'unknown-peers': { type: 'string', description: 'knock (default) or refuse' },
-          admin: { type: 'string', description: 'Admin login; repeat the flag for several' },
         },
         async run(ctx) {
           const relay = await import('./relay/start-relay');
 
           const cfg = loadConfig().relay;
-          const admins = collectStrings(ctx.args.admin);
           const identity = ctx.args.identity === 'dev' ? 'dev' : cfg.identity;
-          const unknownPeersArg = ctx.args['unknown-peers'];
-
-          const unknownPeers =
-            unknownPeersArg === 'refuse' || unknownPeersArg === 'knock'
-              ? unknownPeersArg
-              : cfg.unknownPeers;
 
           const handle = await relay.startRelay({
             host: ctx.args.host ?? cfg.host,
             port: ctx.args.port === undefined ? cfg.port : Number(ctx.args.port),
             dbPath: ctx.args.db ?? dbFile,
             identity,
-            unknownPeers,
-            admins: admins.length > 0 ? admins : cfg.admins,
             build,
           });
 
           process.stderr.write(
-            `${build} relay listening on ${handle.url} (identity: ${identity}, unknown peers: ${unknownPeers})\n`,
+            `${build} relay listening on ${handle.url} (identity: ${identity})\n`,
           );
 
           const stop = () => {
@@ -85,47 +73,48 @@ const main = defineCommand({
       }),
     peers: () =>
       defineCommand({
-        meta: { name: 'peers', description: 'List connected sessions and pending peers' },
+        meta: { name: 'peers', description: 'List reachable sessions and your consent edges' },
         args: {
           relay: { type: 'string', description: 'Relay WebSocket URL' },
         },
         async run(ctx) {
           await withRelay(ctx.args.relay, async (client) => {
             const sessions = await client.sendRequest('peer.list');
+            const edges = await client.sendRequest('peer.edges');
 
-            process.stdout.write(`${JSON.stringify(sessions['sessions'], null, 2)}\n`);
-
-            const pending = await tryReadPending(client);
-
-            if (pending !== null) {
-              process.stdout.write(`pending: ${JSON.stringify(pending, null, 2)}\n`);
-            }
+            process.stdout.write(`sessions: ${JSON.stringify(sessions['sessions'], null, 2)}\n`);
+            process.stdout.write(`edges: ${JSON.stringify(edges['edges'], null, 2)}\n`);
           });
         },
       }),
-    approve: () =>
-      defineCommand({
-        meta: { name: 'approve', description: 'Approve a pending peer' },
-        args: {
-          user: { type: 'positional', description: 'The user id from `backfence peers`' },
-          alias: { type: 'string', description: 'Short name for addresses' },
-          relay: { type: 'string', description: 'Relay WebSocket URL' },
-        },
-        async run(ctx) {
-          await withRelay(ctx.args.relay, async (client) => {
-            await client.sendRequest('peer.approve', {
-              userID: ctx.args.user,
-              alias: ctx.args.alias ?? '',
-            });
-
-            process.stdout.write(`approved ${ctx.args.user}\n`);
-          });
-        },
-      }),
+    accept: () =>
+      defineDecisionCommand('accept', 'Accept a person; the channel opens once both sides have'),
+    decline: () =>
+      defineDecisionCommand('decline', 'Decline a knock; they may knock again after 24 hours'),
+    block: () => defineDecisionCommand('block', 'Block a person until you accept them'),
   },
 });
 
 await runMain(main);
+
+function defineDecisionCommand(verb: 'accept' | 'decline' | 'block', description: string) {
+  return defineCommand({
+    meta: { name: verb, description },
+    args: {
+      peer: { type: 'positional', description: 'A person name or login' },
+      relay: { type: 'string', description: 'Relay WebSocket URL' },
+    },
+    async run(ctx) {
+      await withRelay(ctx.args.relay, async (client) => {
+        const ok = await client.sendRequest(`peer.${verb}`, { peer: ctx.args.peer });
+
+        const open = ok['open'] === true ? ' (open)' : '';
+
+        process.stdout.write(`${verb}ed ${String(ok['person'])} <${String(ok['login'])}>${open}\n`);
+      });
+    },
+  });
+}
 
 async function withRelay(
   url: string | undefined,
@@ -149,27 +138,4 @@ async function withRelay(
   } finally {
     client.dispose();
   }
-}
-
-// Null for a caller who is not an admin: the pending list is theirs to see.
-async function tryReadPending(client: RelayClient): Promise<unknown> {
-  try {
-    const answer = await client.sendRequest('peer.pending');
-
-    return answer['pending'];
-  } catch (error) {
-    if (error instanceof RelayError && error.code === 'unauthorized') {
-      return null;
-    }
-
-    throw error;
-  }
-}
-
-function collectStrings(value: unknown): string[] {
-  if (typeof value === 'string') {
-    return value === '' ? [] : [value];
-  }
-
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }

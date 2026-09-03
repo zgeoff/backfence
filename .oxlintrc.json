@@ -10,19 +10,7 @@
     "zgeoff/function-verb": [
       "error",
       {
-        "verbs": [
-          "ack",
-          "answer",
-          "approve",
-          "block",
-          "deliver",
-          "dispose",
-          "open",
-          "refuse",
-          "route",
-          "log",
-          "mint"
-        ],
+        "verbs": ["answer", "deliver", "dispose", "open", "refuse", "route", "log", "mint"],
         "exemptNames": [
           "main",
           // kysely's Driver interface: BunSqliteDriver implements it, so

@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia';
 import { TAILSCALE_SOCKET, resolvePrincipal } from '../identity/resolve-principal';
 import { PROTOCOL_V, encodeMessage } from '../protocol/protocol';
-import type { IdentityMode, UnknownPeerPolicy } from '../shared/config';
+import type { IdentityMode } from '../shared/config';
 import { PeerStore } from '../store/peer-store';
 import { Presence } from './presence';
 import { RelayConnection } from './relay-connection';
@@ -12,10 +12,9 @@ export interface RelayOptions {
   readonly port: number;
   readonly dbPath: string;
   readonly identity: IdentityMode;
-  readonly unknownPeers: UnknownPeerPolicy;
-  readonly admins: readonly string[];
   readonly build: string;
   readonly tailscaleSocket?: string;
+  readonly now?: () => number;
 }
 
 export interface RelayHandle {
@@ -43,9 +42,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     build: options.build,
     store,
     presence,
-    unknownPeers: options.unknownPeers,
-    admins: options.admins,
-    now: () => Date.now(),
+    now: options.now ?? (() => Date.now()),
   };
 
   const socketPath = options.tailscaleSocket ?? TAILSCALE_SOCKET;
@@ -89,12 +86,6 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             },
           });
 
-          if (connection === null) {
-            refuse(4003, 'refused');
-
-            return null;
-          }
-
           ws.send(encodeMessage({ v: PROTOCOL_V, ev: 'Welcome', relay: options.build }));
 
           return connection;
@@ -123,7 +114,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     .listen({ hostname: options.host, port: options.port });
 
   const sweep = setInterval(() => {
-    void store.removeStaleMessages(Date.now());
+    void store.removeStaleMessages(ctx.now());
   }, SWEEP_INTERVAL_MS);
 
   sweep.unref();

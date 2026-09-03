@@ -17,10 +17,25 @@ test('it trusts the dev headers in dev mode', async () => {
     userID: 'dev:bob@example.com',
     login: 'bob@example.com',
     displayName: 'Bob',
-    nodeID: 'dev',
+    nodeID: 'dev-dev',
     nodeName: 'dev',
     caps: {},
   });
+});
+
+test('it takes the dev node name from its header', async () => {
+  const principal = await resolvePrincipal(
+    {
+      remoteAddress: '127.0.0.1',
+      headers: new Headers({
+        'x-backfence-dev-login': 'bob@example.com',
+        'x-backfence-dev-node': 'garage',
+      }),
+    },
+    'dev',
+  );
+
+  expect(principal).toMatchObject({ nodeID: 'dev-garage', nodeName: 'garage' });
 });
 
 test('it returns null in dev mode when the login header is absent', async () => {

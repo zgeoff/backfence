@@ -1,10 +1,11 @@
 import type { Principal } from '../identity/principal';
-import type { PeerRecord } from '../store/peer-store';
+import type { UserRecord } from '../store/peer-store';
 
 export interface PeerSession {
   readonly connID: number;
   readonly principal: Principal;
-  readonly peer: PeerRecord;
+  readonly user: UserRecord;
+  readonly device: string;
   readonly sessionID: string;
   readonly sessionName: string;
   readonly cwd: string;
@@ -29,11 +30,7 @@ export class Presence {
     return [...this.sessions.values()].toSorted((a, b) => a.connectedAt - b.connectedAt);
   }
 
-  // Every session of one peer, narrowed to one name when given.
-  findSessions(userID: string, sessionName?: string): PeerSession[] {
-    return this.collectSessions().filter(
-      (s) =>
-        s.peer.userID === userID && (sessionName === undefined || s.sessionName === sessionName),
-    );
+  findSessions(userID: string): PeerSession[] {
+    return this.collectSessions().filter((s) => s.user.userID === userID);
   }
 }

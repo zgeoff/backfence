@@ -7,14 +7,10 @@ import { isRecord } from './is-record';
 
 export type IdentityMode = 'tailscale' | 'dev';
 
-export type UnknownPeerPolicy = 'refuse' | 'knock';
-
 interface RelayConfig {
   readonly host: string;
   readonly port: number;
   readonly identity: IdentityMode;
-  readonly unknownPeers: UnknownPeerPolicy;
-  readonly admins: readonly string[];
 }
 
 interface ChannelConfig {
@@ -31,8 +27,6 @@ const DEFAULTS: Config = {
     host: '127.0.0.1',
     port: 7477,
     identity: 'tailscale',
-    unknownPeers: 'knock',
-    admins: [],
   },
   channel: {
     relay: 'ws://127.0.0.1:7477/ws',
@@ -45,15 +39,11 @@ const stateDir = join(homedir(), '.local', 'state', 'backfence');
 export const dbFile = join(stateDir, 'backfence.db');
 const PORT_SCHEMA = z.number().optional();
 const IDENTITY_SCHEMA = z.enum(['tailscale', 'dev']).optional();
-const UNKNOWN_PEERS_SCHEMA = z.enum(['refuse', 'knock']).optional();
-const ADMINS_SCHEMA = z.array(z.string()).optional();
 
 const RELAY_SCHEMA = z.object({
   host: buildOptionalString(),
   port: z.preprocess(toNumber, PORT_SCHEMA),
   identity: z.preprocess(toIdentityMode, IDENTITY_SCHEMA),
-  unknownPeers: z.preprocess(toUnknownPeerPolicy, UNKNOWN_PEERS_SCHEMA),
-  admins: z.preprocess(toStringArray, ADMINS_SCHEMA),
 });
 
 const CHANNEL_SCHEMA = z.object({
@@ -95,17 +85,11 @@ function parseConfig(raw: unknown): Config {
       host: relayData.host ?? DEFAULTS.relay.host,
       port: relayData.port ?? DEFAULTS.relay.port,
       identity: relayData.identity ?? DEFAULTS.relay.identity,
-      unknownPeers: relayData.unknownPeers ?? DEFAULTS.relay.unknownPeers,
-      admins: relayData.admins ?? DEFAULTS.relay.admins,
     },
     channel: {
       relay: channelData.relay ?? DEFAULTS.channel.relay,
     },
   };
-}
-
-function toStringArray(value: unknown): string[] | undefined {
-  return Array.isArray(value) ? value.filter((x) => typeof x === 'string') : undefined;
 }
 
 function toNumber(value: unknown): number | undefined {
@@ -114,8 +98,4 @@ function toNumber(value: unknown): number | undefined {
 
 function toIdentityMode(value: unknown): IdentityMode | undefined {
   return value === 'tailscale' || value === 'dev' ? value : undefined;
-}
-
-function toUnknownPeerPolicy(value: unknown): UnknownPeerPolicy | undefined {
-  return value === 'refuse' || value === 'knock' ? value : undefined;
 }
