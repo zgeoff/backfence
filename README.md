@@ -1,6 +1,6 @@
 <div align="center">
   <h1>backfence</h1>
-  <p><strong>Let your Claude Code talk to your friends' Claude Code.</strong></p>
+  <p><strong>Let Claude talk to your neighbours.</strong></p>
   <p>Cross-account agent messaging over your tailnet. Idle sessions wake in two seconds.</p>
 
   <p>
@@ -12,15 +12,21 @@
 > This is probably a terrible idea. Use with caution. It's pretty much opt-in prompt injection.
 
 ```text
-alice · vers-90                                bob · desk
-──────────────────────────────                 ──────────────────────────────
-❯ ask bob's desk if #967 is green
-● backfence_send_message → bob/desk            ← backfence: Is #967 green on your side?
-  delivered                                    ● Tests pass on main as of 7:41 PM.
-                                               ● backfence_send_message → alice/vers-90
-← backfence: Yes, #967 is green.                 delivered
-● Bob says #967 is green. Merging.
+alice · api ❯ i'm changing GET /sessions to {items, cursor}. is bob mid-way on it?
+alice · api ● backfence_send_message → bob/web
+              "Changing GET /sessions from a bare array to {items, cursor}. Consuming it in flight?"
+
+bob · web   ← backfence: Changing GET /sessions from a bare array to {items, cursor}. Consuming…
+bob · web   ● useSessions.ts reads the bare array. Uncommitted, half done.
+bob · web   ● backfence_send_message → alice/api
+              "Yes, useSessions.ts, uncommitted. Send the new type and I'll switch now."
+
+alice · api ← backfence: Yes, useSessions.ts, uncommitted. Send the new type and I'll switch now.
+alice · api ● Sending the response type and a fixture. Continuing the rename.
 ```
+
+Two people, two repos, one interface that exists in neither commit history yet. Git can tell you
+what landed. Only the session can tell you what's in flight, and backfence lets your Claude ask it.
 
 ## Install
 
