@@ -60,12 +60,8 @@ const CHANNEL_SCHEMA = z.object({
   relay: buildOptionalString(),
 });
 
-/**
- * Loads `~/.config/backfence/config.json`, writing the defaults when the
- * file is absent. A malformed field falls back to its default rather than
- * failing the whole file, so a hand-edited config never stops backfence
- * from starting.
- */
+// A malformed field falls back to its default rather than failing the file, so a hand-edited
+// config never stops backfence from starting.
 export function loadConfig(): Config {
   mkdirSync(configDir, { recursive: true });
   mkdirSync(stateDir, { recursive: true });

@@ -20,13 +20,8 @@ export interface RouteResult {
 
 const MESSAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/**
- * Sends one message to an address. A connected target gets a `Message`
- * event now and the row waits for its ack; an offline target's row waits
- * for the session's next hello. Either way the row exists before anything
- * goes on the wire, so a crash between the two redelivers rather than
- * loses.
- */
+// The row exists before anything goes on the wire, so a crash between the write and the send
+// redelivers rather than loses.
 export async function routeMessage(
   ctx: RouteContext,
   from: PeerSession,

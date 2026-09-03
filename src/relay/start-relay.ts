@@ -33,11 +33,7 @@ const REFUSE_GRACE_MS = 1000;
 // How long stop waits for the server to drain before moving on.
 const STOP_GRACE_MS = 1000;
 
-/**
- * Serves the relay: a WebSocket endpoint at `/ws` whose every connection is
- * identified before it may speak, and a `/health` probe. Resolves once the
- * socket is bound.
- */
+// Resolves once the socket is bound.
 export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
   const store = await PeerStore.open(options.dbPath);
 

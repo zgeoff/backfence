@@ -16,15 +16,8 @@ export interface RelayClientOptions {
 const BACKOFF_MIN_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
 
-/**
- * A protocol connection to the relay: correlated request/response plus an
- * event callback. A dial counts as open only once the relay's welcome
- * arrives, which it sends after identifying the peer; a refusal before
- * that rejects the dial with the relay's code and reason, and the client
- * hangs up. With
- * `reconnect` on, a dropped socket is redialed with backoff and `onOpen`
- * fires again so the owner can repeat its hello.
- */
+// A dial counts as open only once the relay's Welcome arrives, sent after it identifies the peer;
+// a Refused event before that rejects the dial and the client hangs up itself.
 export class RelayClient {
   onEvent: (event: EventMsg) => void = () => {};
 

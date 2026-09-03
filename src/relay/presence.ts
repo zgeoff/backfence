@@ -13,10 +13,7 @@ export interface PeerSession {
   readonly send: (frame: string) => void;
 }
 
-/**
- * The in-memory roster of connected sessions, keyed by connection. A
- * session is present from a successful hello until its socket closes.
- */
+// A session is present from a successful hello until its socket closes.
 export class Presence {
   private readonly sessions = new Map<number, PeerSession>();
 

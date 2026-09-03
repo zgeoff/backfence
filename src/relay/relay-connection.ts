@@ -28,12 +28,8 @@ type Answer = Readonly<Record<string, unknown>>;
 
 let nextConnID = 1;
 
-/**
- * One client connection: the peer record behind it, the session it
- * registered with hello, and the request dispatch. The peer record is
- * re-read on every request so an approve or block takes effect at the
- * peer's next call, with no reconnect.
- */
+// The peer record is re-read on every request so an approve or block takes effect at the peer's
+// next call, with no reconnect.
 export class RelayConnection {
   readonly connID: number;
 
@@ -55,11 +51,7 @@ export class RelayConnection {
     this.socket = socket;
   }
 
-  /**
-   * Records the principal against the allowlist policy. Null means the
-   * policy refuses unknown peers and this one is unknown, so the caller
-   * closes the socket.
-   */
+  // Null means the policy refuses unknown peers and this one is unknown; the caller closes the socket.
   static async open(
     ctx: RelayContext,
     principal: Principal,

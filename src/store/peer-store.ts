@@ -35,12 +35,8 @@ interface UpsertOptions {
   readonly now: number;
 }
 
-/**
- * Relay state in one SQLite store: the peer allowlist and the messages
- * waiting for an offline session. Every query runs through kysely against
- * the schema the migration ladder maintains, over the one bun:sqlite
- * connection this store owns.
- */
+// Every query runs through kysely over the one bun:sqlite connection this store owns, so every
+// method is asynchronous and the driver's connection mutex keeps writes ordered.
 export class PeerStore {
   private readonly sqlite: Database;
 
@@ -94,12 +90,8 @@ export class PeerStore {
     return row === undefined ? null : toPeerRecord(row);
   }
 
-  /**
-   * Records a connecting principal. A new peer takes the given status; a
-   * known peer keeps its status and gets fresh login, display name, and
-   * last-seen columns. Admin rights only ever go up: a login that is an
-   * admin in config becomes allowed and admin whatever its row held.
-   */
+  // A known peer keeps its status; admin rights only ever go up, so a config admin becomes allowed
+  // and admin whatever its row held.
   async upsertPeer(principal: Principal, options: UpsertOptions): Promise<PeerRecord> {
     await this.db
       .insertInto('peers')
@@ -172,10 +164,7 @@ export class PeerStore {
       .execute();
   }
 
-  /**
-   * Undelivered, unexpired messages for one session: those addressed to it
-   * by name plus those addressed to its peer with no session named.
-   */
+  // Includes rows addressed to the peer with no session named.
   async collectQueued(toUser: string, toSession: string, now: number): Promise<QueuedMessage[]> {
     const rows = await this.db
       .selectFrom('messages')

@@ -1,8 +1,5 @@
-/**
- * Who a connection belongs to, as the relay's identity source reports it.
- * `userID` is the stable key every allowlist decision is made on; `login`
- * and `displayName` are for humans and addresses.
- */
+// userID is the stable key every allowlist decision is made on; login and displayName are for
+// humans and addresses.
 export interface Principal {
   readonly userID: string;
   readonly login: string;

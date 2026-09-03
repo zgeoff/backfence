@@ -25,10 +25,6 @@ interface MessagesTable {
   expires_at: number;
 }
 
-/**
- * The peer store's schema: what the query builder and the migration ladder
- * both build against.
- */
 export interface PeerStoreSchema {
   peers: PeersTable;
   messages: MessagesTable;
@@ -74,10 +70,7 @@ const MIGRATIONS: Record<string, Migration> = {
   },
 };
 
-/**
- * Brings the store to the latest schema. Kysely records applied migrations
- * in its own table, so reopening an up-to-date store is a no-op.
- */
+// Kysely records applied migrations in its own table, so reopening an up-to-date store is a no-op.
 export async function runMigrations(db: Kysely<PeerStoreSchema>): Promise<void> {
   const provider: MigrationProvider = {
     getMigrations: () => Promise.resolve(MIGRATIONS),

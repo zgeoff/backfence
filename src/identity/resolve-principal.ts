@@ -9,12 +9,8 @@ export interface ConnectionOrigin {
 
 export const TAILSCALE_SOCKET = '/var/run/tailscale/tailscaled.sock';
 
-/**
- * Resolves who is on the other end of a connection. In `tailscale` mode the
- * answer comes from tailscaled's whois for the peer's tailnet address, so a
- * client can never claim an identity. `dev` mode trusts two request headers
- * instead, for tests and for a relay that is not on a tailnet.
- */
+// In tailscale mode the answer comes from tailscaled's whois for the peer's address, so a client
+// can never claim an identity; dev mode trusts two request headers, for tests only.
 export async function resolvePrincipal(
   origin: ConnectionOrigin,
   mode: IdentityMode,

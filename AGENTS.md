@@ -202,7 +202,8 @@ code and reason; `mint` generates an id backfence is the sole authority for.
 
 ## Comments
 
-- JSDoc is always multi-line, never single-line `/** … */`.
+- No JSDoc. A comment is a run of at most three `//` lines holding only what neither the code, a
+  type, a test name, nor the subsystem doc can hold: the reason a line does the non-obvious thing.
 - No history or project state in comments — a comment describes the code as it is, never how it got
   that way or what is planned.
 - Comments never name other declarations: renames strand the reference. Describe the behavior

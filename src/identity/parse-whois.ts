@@ -24,11 +24,8 @@ const WHOIS_SCHEMA = z.object({
   CapMap: CAP_MAP_SCHEMA,
 });
 
-/**
- * Turns a Tailscale LocalAPI whois response into a principal. A tagged
- * node has no person behind it, so its identity is the node itself and its
- * tags stand in for a login; a user-owned node is the user.
- */
+// A tagged node has no person behind it: its identity is the node and its tags stand in for a
+// login.
 export function parseWhoIs(raw: unknown): Principal | null {
   const result = WHOIS_SCHEMA.safeParse(raw);
 

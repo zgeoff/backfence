@@ -11,13 +11,8 @@ export interface SessionIdentity {
 
 const DEFAULT_REGISTRY = join(homedir(), '.claude', 'sessions');
 
-/**
- * Who this channel process speaks for. Claude Code puts the session id and
- * project directory in the environment of every MCP server it spawns; the
- * session's name comes from the registry entry Claude Code writes for
- * itself, so it matches what ListAgents shows on that machine. With no
- * registry entry the directory's basename stands in.
- */
+// The session name comes from Claude Code's own registry so it matches what ListAgents shows;
+// the directory basename stands in when no entry matches.
 export function readSessionIdentity(
   env: Readonly<Record<string, string | undefined>> = process.env,
   registryDir = DEFAULT_REGISTRY,

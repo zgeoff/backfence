@@ -1,10 +1,7 @@
 import { isRecord } from '../shared/is-record';
 
-/**
- * The relay/channel wire dialect: one JSON object per WebSocket text frame.
- * Three message kinds, distinguished by which fields are present — request
- * (id + m), response (id + ok or err), event (ev).
- */
+// Three message kinds, distinguished by which fields are present: request (id + m), response
+// (id + ok or err), event (ev).
 export const PROTOCOL_V = 1;
 export const MAX_FRAME = 262_144;
 export const MAX_BODY = 65_536;
@@ -54,11 +51,8 @@ export type DecodedMsg =
   | { readonly kind: 'event'; readonly msg: EventMsg }
   | { readonly kind: 'malformed'; readonly reason: string };
 
-/**
- * Classifies one frame. Unknown fields pass through untouched so additive
- * evolution never breaks a peer; a frame that parses but fits no message
- * kind is malformed, and the caller closes the connection.
- */
+// Unknown fields pass through so additive evolution never breaks a peer; a frame that fits no
+// message kind is malformed and the caller closes the connection.
 export function decodeMessage(frame: string): DecodedMsg {
   let parsed: unknown;
 

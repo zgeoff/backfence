@@ -3,11 +3,7 @@ export interface Address {
   readonly session: string | null;
 }
 
-/**
- * Splits a `peer/session` address. The peer is an alias or a login; the
- * session part is optional and may hold spaces, since Claude Code session
- * names do. Null when the peer part is empty.
- */
+// The session part may hold spaces, since Claude Code session names do.
 export function parseAddress(raw: string): Address | null {
   const trimmed = raw.trim();
   const slash = trimmed.indexOf('/');

@@ -28,12 +28,7 @@ const INSTRUCTIONS = [
   'Use backfence_list_agents to see who is reachable. Addresses are peer/session; a bare peer works when they have one session.',
 ].join(' ');
 
-/**
- * The channel MCP server: serves Claude the backfence tools over stdio and
- * turns relay deliveries into channel notifications. The relay connection
- * redials on its own; while it is down, tools answer with an error text
- * rather than failing the session.
- */
+// Tools answer with an error text while the relay is down; the client redials on its own.
 export async function runChannelServer(options: ChannelOptions): Promise<void> {
   const server = new McpServer(
     { name: 'backfence', version: options.build },

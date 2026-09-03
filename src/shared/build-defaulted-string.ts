@@ -1,9 +1,6 @@
 import { z } from 'zod';
 
-/**
- * A string with a fallback: a missing or non-string value parses to the
- * default instead of failing the object it belongs to.
- */
+// A missing or non-string value parses to the fallback instead of failing the object.
 export function buildDefaultedString(fallback: string) {
   return z.preprocess((v) => (typeof v === 'string' ? v : fallback), z.string());
 }

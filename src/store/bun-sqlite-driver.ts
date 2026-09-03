@@ -2,13 +2,8 @@ import type { Database, SQLQueryBindings } from 'bun:sqlite';
 import { CompiledQuery } from 'kysely';
 import type { DatabaseConnection, Driver, QueryResult } from 'kysely';
 
-/**
- * A kysely `Driver` over one bun:sqlite handle. SQLite has a single
- * connection, so `acquireConnection` hands it out to one caller at a time
- * through a promise-chain mutex and `releaseConnection` lets the next
- * caller in — the ordering every transaction (and every plain query) relies
- * on once the store runs asynchronously.
- */
+// SQLite has one connection, so acquireConnection hands it out one caller at a time through a
+// promise-chain mutex; every query and transaction relies on that ordering.
 export class BunSqliteDriver implements Driver {
   private readonly connection: DatabaseConnection;
 
