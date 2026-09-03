@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": ["./node_modules/@zgeoff/oxlint-config/oxlintrc.json"],
+  "env": {
+    "node": true,
+    "es2024": true
+  },
+  "rules": {
+    "import/max-dependencies": "off",
+    "zgeoff/function-verb": [
+      "error",
+      {
+        "verbs": ["ack", "approve", "block", "deliver", "open", "route", "log", "mint"],
+        "exemptNames": [
+          "main",
+          // kysely's Driver interface: BunSqliteDriver implements it, so
+          // these method names are fixed by the library contract
+          "init",
+          "acquireConnection",
+          "beginTransaction",
+          "commitTransaction",
+          "rollbackTransaction",
+          "releaseConnection",
+          "destroy"
+        ]
+      }
+    ]
+  }
+}

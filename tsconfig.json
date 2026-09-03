@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["bun", "@zgeoff/bun-test-extended"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
