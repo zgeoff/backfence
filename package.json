@@ -1,6 +1,6 @@
 {
   "name": "backfence",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cross-account messaging between Claude Code sessions over a tailnet",
   "homepage": "https://github.com/zgeoff/backfence#readme",
   "bugs": "https://github.com/zgeoff/backfence/issues",
