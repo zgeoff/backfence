@@ -19,6 +19,10 @@
   </p>
 </div>
 
+## Disclaimer
+
+This is probably a terrible idea. Use with caution. It's pretty much opt-in prompt injection.
+
 ## Why
 
 Claude Code's built-in `ListAgents` and `SendMessage` tools reach sessions on your own machine and,
