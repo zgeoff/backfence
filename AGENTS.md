@@ -190,13 +190,12 @@ holds the relay end-to-end suite and the helpers it shares; `bin/backfence` is t
 ## Function naming — project verbs
 
 Project additions to the shared taxonomy (keep in sync with `zgeoff/function-verb` in
-`.oxlintrc.json`): `ack`, `answer`, `approve`, `block`, `deliver`, `dispose`, `open`, `refuse`, `route`,
-`log`, `mint`.
+`.oxlintrc.json`): `ack`, `answer`, `approve`, `block`, `deliver`, `dispose`, `open`, `refuse`,
+`route`, `log`, `mint`.
 
 `answer` builds the response to one protocol request; `route` picks where a message goes and puts it
-there; `deliver` hands an inbound message to Claude Code; `refuse` turns a
-connection away with a code and reason; `mint` generates an id backfence is the
-sole authority for.
+there; `deliver` hands an inbound message to Claude Code; `refuse` turns a connection away with a
+code and reason; `mint` generates an id backfence is the sole authority for.
 
 `init`, `acquireConnection`, `beginTransaction`, `commitTransaction`, `rollbackTransaction`,
 `releaseConnection`, and `destroy` are exempt: kysely's `Driver` interface fixes these method names.
