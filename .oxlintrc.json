@@ -10,7 +10,19 @@
     "zgeoff/function-verb": [
       "error",
       {
-        "verbs": ["ack", "approve", "block", "deliver", "open", "route", "log", "mint"],
+        "verbs": [
+          "ack",
+          "answer",
+          "approve",
+          "block",
+          "deliver",
+          "dispose",
+          "open",
+          "refuse",
+          "route",
+          "log",
+          "mint"
+        ],
         "exemptNames": [
           "main",
           // kysely's Driver interface: BunSqliteDriver implements it, so
@@ -24,6 +36,53 @@
           "destroy"
         ]
       }
-    ]
-  }
+    ],
+    "typescript/prefer-readonly-parameter-types": [
+      "error",
+      {
+        "ignoreInferredTypes": true,
+        "allow": [
+          { "from": "lib", "name": "Buffer" },
+          { "from": "package", "name": "Buffer", "package": "@types/node" },
+          // request headers and socket events: lib types with no readonly form
+          { "from": "file", "name": "ConnectionOrigin" },
+          { "from": "lib", "name": "Event" },
+          { "from": "lib", "name": "CloseEvent" },
+          { "from": "lib", "name": "MessageEvent" },
+          // already the readonly form; the rule doesn't recognize it as such
+          { "from": "lib", "name": "ReadonlySet" },
+          // wraps a live db connection; not meaningfully freezable
+          { "from": "file", "name": "PeerStore" },
+          { "from": "package", "name": "Database", "package": "bun:sqlite" },
+          // a query builder bound to a live connection; not meaningfully
+          // freezable
+          { "from": "package", "name": "Kysely", "package": "kysely" },
+          { "from": "package", "name": "CompiledQuery", "package": "kysely" },
+          { "from": "package", "name": "DatabaseConnection", "package": "kysely" },
+          { "from": "package", "name": "MigrationResultSet", "package": "kysely" },
+          { "from": "package", "name": "OnConflictBuilder", "package": "kysely" },
+          { "from": "package", "name": "ExpressionBuilder", "package": "kysely" },
+          { "from": "package", "name": "ColumnDefinitionBuilder", "package": "kysely" },
+          // the live roster and the connections over it: mutated in place
+          { "from": "file", "name": "Presence" },
+          { "from": "file", "name": "RelayContext" },
+          { "from": "file", "name": "RelayConnection" },
+          { "from": "file", "name": "RelayClient" },
+          // a live socket handle from the server framework
+          { "from": "package", "name": "ElysiaWS", "package": "elysia" }
+        ]
+      }
+    ],
+    "max-statements": "off",
+    "max-lines-per-function": "off",
+    "max-lines": "off",
+    "max-params": "off",
+    "no-inline-comments": "off",
+    "no-continue": "off",
+    "init-declarations": "off",
+    "no-await-in-loop": "off",
+    "promise/avoid-new": "off",
+    "require-unicode-regexp": "off"
+  },
+  "ignorePatterns": [".claude/**"]
 }
