@@ -13,6 +13,18 @@ const ALICE = {
   caps: {},
 };
 
+const HELD = {
+  fromUser: 'ts:1',
+  toUser: 'ts:2',
+  fromAddress: 'alice/laptop',
+  fromSession: 'laptop',
+  fromNode: 'laptop',
+  toSession: '',
+  body: 'first',
+  createdAt: 5,
+  expiresAt: 1000,
+};
+
 async function setupTest() {
   const dir = mkdtempSync(join(tmpdir(), 'backfence-store-'));
 
@@ -28,23 +40,16 @@ async function setupTest() {
   };
 }
 
-test('it inserts a new peer with the given status and keeps that status on a later upsert', async () => {
+test('it inserts a new user and refreshes the name and last seen on a later upsert', async () => {
   await using ctx = await setupTest();
 
-  const first = await ctx.store.upsertPeer(ALICE, { status: 'pending', admin: false, now: 10 });
-
-  const second = await ctx.store.upsertPeer(
-    { ...ALICE, displayName: 'Alice W' },
-    { status: 'allowed', admin: false, now: 20 },
-  );
+  const first = await ctx.store.upsertUser(ALICE, 10);
+  const second = await ctx.store.upsertUser({ ...ALICE, displayName: 'Alice W' }, 20);
 
   expect(first).toStrictEqual({
     userID: 'ts:1',
     login: 'alice@example.com',
     displayName: 'Alice',
-    alias: null,
-    status: 'pending',
-    admin: false,
     firstSeen: 10,
     lastSeen: 10,
   });
@@ -52,36 +57,89 @@ test('it inserts a new peer with the given status and keeps that status on a lat
   expect(second).toStrictEqual({ ...first, displayName: 'Alice W', lastSeen: 20 });
 });
 
-test('it promotes a known peer to allowed admin when the upsert carries admin rights', async () => {
+test('it reports both sides undecided for a pair with no edge', async () => {
   await using ctx = await setupTest();
 
-  await ctx.store.upsertPeer(ALICE, { status: 'pending', admin: false, now: 10 });
+  const edge = await ctx.store.findEdge('ts:1', 'ts:2');
 
-  const promoted = await ctx.store.upsertPeer(ALICE, { status: 'pending', admin: true, now: 20 });
-
-  expect(promoted).toMatchObject({ status: 'allowed', admin: true });
+  expect(edge).toStrictEqual({
+    otherUser: 'ts:2',
+    you: 'none',
+    youAt: null,
+    them: 'none',
+    themAt: null,
+    knockedAt: null,
+  });
 });
 
-test('it finds a peer by alias before login', async () => {
+test('it keeps one row per pair whichever side decides first', async () => {
   await using ctx = await setupTest();
 
-  await ctx.store.upsertPeer(ALICE, { status: 'allowed', admin: false, now: 10 });
+  await ctx.store.updateEdgeSide('ts:2', 'ts:1', 'accepted', 10);
 
-  await ctx.store.upsertPeer(
-    { ...ALICE, userID: 'ts:2', login: 'alice', displayName: 'Other Alice' },
-    { status: 'allowed', admin: false, now: 10 },
-  );
+  const fromAlice = await ctx.store.updateEdgeSide('ts:1', 'ts:2', 'declined', 20);
+  const fromBob = await ctx.store.findEdge('ts:2', 'ts:1');
+  const edges = await ctx.store.collectEdges('ts:1');
 
-  await ctx.store.updatePeerStatus('ts:1', 'allowed', 'alice');
+  expect(fromAlice).toStrictEqual({
+    otherUser: 'ts:2',
+    you: 'declined',
+    youAt: 20,
+    them: 'accepted',
+    themAt: 10,
+    knockedAt: null,
+  });
 
-  const byAlias = await ctx.store.findPeerByName('alice');
-  const byLogin = await ctx.store.findPeerByName('alice@example.com');
+  expect(fromBob).toStrictEqual({
+    otherUser: 'ts:1',
+    you: 'accepted',
+    youAt: 10,
+    them: 'declined',
+    themAt: 20,
+    knockedAt: null,
+  });
 
-  expect(byAlias?.userID).toBe('ts:1');
-  expect(byLogin?.userID).toBe('ts:1');
+  expect(edges).toStrictEqual([fromAlice]);
 });
 
-test('it returns queued messages for a session by name and for its peer with no session named', async () => {
+test('it records when the last knock went out', async () => {
+  await using ctx = await setupTest();
+
+  await ctx.store.updateEdgeSide('ts:1', 'ts:2', 'accepted', 10);
+  await ctx.store.updateKnockedAt('ts:1', 'ts:2', 11);
+
+  const edge = await ctx.store.findEdge('ts:2', 'ts:1');
+
+  expect(edge).toMatchObject({ knockedAt: 11 });
+});
+
+test('it keeps one held message per direction, the newest replacing the older', async () => {
+  await using ctx = await setupTest();
+
+  await ctx.store.writeHeld(HELD);
+  await ctx.store.writeHeld({ ...HELD, body: 'second', createdAt: 6, toSession: 'desk' });
+
+  const held = await ctx.store.findHeld('ts:1', 'ts:2', 10);
+
+  expect(held).toStrictEqual({ ...HELD, body: 'second', createdAt: 6, toSession: 'desk' });
+});
+
+test('it hides an expired held message and forgets a removed one', async () => {
+  await using ctx = await setupTest();
+
+  await ctx.store.writeHeld(HELD);
+
+  const expired = await ctx.store.findHeld('ts:1', 'ts:2', 1000);
+
+  await ctx.store.removeHeld('ts:1', 'ts:2');
+
+  const removed = await ctx.store.findHeld('ts:1', 'ts:2', 10);
+
+  expect(expired).toBeNull();
+  expect(removed).toBeNull();
+});
+
+test('it returns queued messages for a session by name and for its user with no session named', async () => {
   await using ctx = await setupTest();
 
   const base = {
@@ -104,7 +162,7 @@ test('it returns queued messages for a session by name and for its peer with no 
   expect(queued.map((m) => m.id)).toStrictEqual(['m1']);
 });
 
-test('it removes delivered and expired messages and keeps live queued ones', async () => {
+test('it removes delivered, expired, and stale held messages and keeps live ones', async () => {
   await using ctx = await setupTest();
 
   const base = {
@@ -120,9 +178,15 @@ test('it removes delivered and expired messages and keeps live queued ones', asy
   await ctx.store.writeMessage({ ...base, id: 'old', expiresAt: 9 });
   await ctx.store.writeMessage({ ...base, id: 'done', expiresAt: 1000 });
   await ctx.store.updateDelivered('done', 6);
+  await ctx.store.writeHeld(HELD);
+  await ctx.store.writeHeld({ ...HELD, toUser: 'ts:3', expiresAt: 9 });
   await ctx.store.removeStaleMessages(10);
 
   const queued = await ctx.store.collectQueued('ts:1', 'x', 10);
+  const liveHeld = await ctx.store.findHeld('ts:1', 'ts:2', 10);
+  const staleHeld = await ctx.store.findHeld('ts:1', 'ts:3', 10);
 
   expect(queued.map((m) => m.id)).toStrictEqual(['live']);
+  expect(liveHeld).toStrictEqual(HELD);
+  expect(staleHeld).toBeNull();
 });

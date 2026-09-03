@@ -1,21 +1,23 @@
+import { formatDevice } from '../identity/format-device';
 import type { Principal } from '../identity/principal';
 import { parseRequestParams } from '../protocol/parse-request-params';
 import type { RequestMethod } from '../protocol/parse-request-params';
 import { MAX_FRAME, PROTOCOL_V, decodeMessage, encodeMessage } from '../protocol/protocol';
 import type { ErrorCode, RequestMsg } from '../protocol/protocol';
 import { RelayError } from '../protocol/relay-error';
-import type { UnknownPeerPolicy } from '../shared/config';
-import type { PeerRecord, PeerStore } from '../store/peer-store';
+import type { PeerStore, SideState, UserRecord } from '../store/peer-store';
+import { buildKnockEvent } from './build-knock-event';
+import { findUserByName } from './find-user-by-name';
 import { formatAddress } from './format-address';
+import { formatPerson } from './format-person';
 import type { PeerSession, Presence } from './presence';
 import { routeMessage } from './route-message';
+import { routeOpenMessage } from './route-open-message';
 
 export interface RelayContext {
   readonly build: string;
   readonly store: PeerStore;
   readonly presence: Presence;
-  readonly unknownPeers: UnknownPeerPolicy;
-  readonly admins: readonly string[];
   readonly now: () => number;
 }
 
@@ -24,12 +26,18 @@ interface Socket {
   readonly close: (code: number, reason: string) => void;
 }
 
+interface ResolvedPeer {
+  readonly user: UserRecord;
+  readonly person: string;
+  readonly users: readonly UserRecord[];
+}
+
 type Answer = Readonly<Record<string, unknown>>;
 
 let nextConnID = 1;
 
-// The peer record is re-read on every request so an approve or block takes effect at the peer's
-// next call, with no reconnect.
+// Every identified connection may speak; consent is checked per pair on each send, never per
+// connection.
 export class RelayConnection {
   readonly connID: number;
 
@@ -39,39 +47,29 @@ export class RelayConnection {
 
   private readonly socket: Socket;
 
-  private peer: PeerRecord;
+  private readonly user: UserRecord;
+
+  private readonly device: string;
 
   private session: PeerSession | null = null;
 
-  private constructor(ctx: RelayContext, principal: Principal, peer: PeerRecord, socket: Socket) {
+  private constructor(ctx: RelayContext, principal: Principal, user: UserRecord, socket: Socket) {
     this.connID = nextConnID++;
     this.ctx = ctx;
     this.principal = principal;
-    this.peer = peer;
+    this.user = user;
+    this.device = formatDevice(principal.nodeName);
     this.socket = socket;
   }
 
-  // Null means the policy refuses unknown peers and this one is unknown; the caller closes the socket.
   static async open(
     ctx: RelayContext,
     principal: Principal,
     socket: Socket,
-  ): Promise<RelayConnection | null> {
-    const admin = ctx.admins.includes(principal.login);
+  ): Promise<RelayConnection> {
+    const user = await ctx.store.upsertUser(principal, ctx.now());
 
-    const known = await ctx.store.findPeer(principal.userID);
-
-    if (known === null && !admin && ctx.unknownPeers === 'refuse') {
-      return null;
-    }
-
-    const peer = await ctx.store.upsertPeer(principal, {
-      status: admin ? 'allowed' : 'pending',
-      admin,
-      now: ctx.now(),
-    });
-
-    return new RelayConnection(ctx, principal, peer, socket);
+    return new RelayConnection(ctx, principal, user, socket);
   }
 
   async applyFrame(frame: string): Promise<void> {
@@ -128,17 +126,7 @@ export class RelayConnection {
     }
   }
 
-  private async answer(msg: RequestMsg): Promise<Answer> {
-    const refreshed = await this.ctx.store.findPeer(this.principal.userID);
-
-    if (refreshed !== null) {
-      this.peer = refreshed;
-    }
-
-    if (this.peer.status === 'blocked') {
-      throw new RelayError('peer_blocked', 'this peer is blocked on the relay');
-    }
-
+  private answer(msg: RequestMsg): Promise<Answer> {
     switch (msg.m) {
       case 'relay.hello': {
         return this.answerHello(msg);
@@ -146,14 +134,17 @@ export class RelayConnection {
       case 'peer.list': {
         return this.answerPeerList();
       }
-      case 'peer.pending': {
-        return this.answerPeerPending();
+      case 'peer.edges': {
+        return this.answerPeerEdges();
       }
-      case 'peer.approve': {
-        return this.answerPeerApprove(msg);
+      case 'peer.accept': {
+        return this.answerPeerAccept(msg);
+      }
+      case 'peer.decline': {
+        return this.answerPeerDecision(msg, 'peer.decline', 'declined');
       }
       case 'peer.block': {
-        return this.answerPeerBlock(msg);
+        return this.answerPeerDecision(msg, 'peer.block', 'blocked');
       }
       case 'message.send': {
         return this.answerMessageSend(msg);
@@ -169,32 +160,24 @@ export class RelayConnection {
 
   private async answerHello(msg: RequestMsg): Promise<Answer> {
     const p = this.parse('relay.hello', msg);
+    const now = this.ctx.now();
 
-    const you = {
-      userID: this.peer.userID,
-      login: this.peer.login,
-      displayName: this.peer.displayName,
-      alias: this.peer.alias,
-      status: this.peer.status,
-      admin: this.peer.admin,
-      address: formatAddress(this.peer, p.sessionName),
-    };
+    const users = await this.ctx.store.collectUsers();
 
-    if (this.peer.status !== 'allowed') {
-      return { relay: this.ctx.build, you };
-    }
+    const person = formatPerson(this.user, users);
 
     this.dispose();
 
     const session: PeerSession = {
       connID: this.connID,
       principal: this.principal,
-      peer: this.peer,
+      user: this.user,
+      device: this.device,
       sessionID: p.sessionID,
       sessionName: p.sessionName,
       cwd: p.cwd,
       mode: p.mode,
-      connectedAt: this.ctx.now(),
+      connectedAt: now,
       send: (frame) => {
         this.socket.send(frame);
       },
@@ -206,113 +189,178 @@ export class RelayConnection {
       this.ctx.presence.register(session);
     }
 
-    const queued = await this.ctx.store.collectQueued(
-      this.peer.userID,
-      p.sessionName,
-      this.ctx.now(),
-    );
+    const siblings = this.ctx.presence.findSessions(this.user.userID);
+
+    const you = {
+      userID: this.user.userID,
+      login: this.user.login,
+      displayName: this.user.displayName,
+      person,
+      device: this.device,
+      address: formatAddress(person, session, siblings),
+    };
+
+    const queued = await this.ctx.store.collectQueued(this.user.userID, p.sessionName, now);
 
     for (const message of queued) {
+      const sender = users.find((u) => u.userID === message.fromUser);
+
       session.send(
         encodeMessage({
           v: PROTOCOL_V,
           ev: 'Message',
           id: message.id,
           from: message.fromAddress,
-          fromUser: '',
-          fromName: '',
+          fromUser: sender?.login ?? '',
+          fromName: sender?.displayName ?? '',
           body: message.body,
           sentAt: message.createdAt,
         }),
       );
     }
 
-    return { relay: this.ctx.build, you, queued: queued.length };
+    const edges = await this.ctx.store.collectEdges(this.user.userID);
+
+    const waiting = edges.filter(
+      (edge) => edge.them === 'accepted' && edge.you === 'none' && edge.knockedAt !== null,
+    );
+
+    for (const edge of waiting) {
+      const other = users.find((u) => u.userID === edge.otherUser);
+
+      if (other === undefined || p.kind !== 'session') {
+        continue;
+      }
+
+      const held = await this.ctx.store.findHeld(other.userID, this.user.userID, now);
+
+      const otherPerson = formatPerson(other, users);
+
+      session.send(
+        encodeMessage(
+          buildKnockEvent({
+            from: held?.fromAddress ?? otherPerson,
+            person: otherPerson,
+            login: other.login,
+            displayName: other.displayName,
+            node: held?.fromNode ?? '',
+            sessionName: held?.fromSession ?? '',
+            knockedAt: edge.themAt ?? now,
+          }),
+        ),
+      );
+    }
+
+    return { relay: this.ctx.build, you, queued: queued.length, knocks: waiting.length };
   }
 
-  private answerPeerList(): Answer {
-    this.requireAllowed();
+  private async answerPeerList(): Promise<Answer> {
+    const users = await this.ctx.store.collectUsers();
+    const edges = await this.ctx.store.collectEdges(this.user.userID);
 
-    const sessions = this.ctx.presence.collectSessions().map((s) => ({
-      address: formatAddress(s.peer, s.sessionName),
-      login: s.peer.login,
-      displayName: s.peer.displayName,
-      cwd: s.cwd,
-      mode: s.mode,
-      connectedAt: s.connectedAt,
-      self: s.connID === this.connID,
-    }));
+    const open = new Set(
+      edges.filter((e) => e.you === 'accepted' && e.them === 'accepted').map((e) => e.otherUser),
+    );
+
+    const sessions = this.ctx.presence
+      .collectSessions()
+      .filter((s) => s.user.userID === this.user.userID || open.has(s.user.userID))
+      .map((s) => {
+        const person = formatPerson(s.user, users);
+        const siblings = this.ctx.presence.findSessions(s.user.userID);
+
+        return {
+          address: formatAddress(person, s, siblings),
+          person,
+          device: s.device,
+          session: s.sessionName,
+          login: s.user.login,
+          displayName: s.user.displayName,
+          cwd: s.cwd,
+          mode: s.mode,
+          connectedAt: s.connectedAt,
+          self: s.connID === this.connID,
+        };
+      });
 
     return { sessions };
   }
 
-  private async answerPeerPending(): Promise<Answer> {
-    this.requireAdmin();
+  // The other side shows as accepted or none: a decline or block is theirs to know, not ours.
+  private async answerPeerEdges(): Promise<Answer> {
+    const users = await this.ctx.store.collectUsers();
+    const edges = await this.ctx.store.collectEdges(this.user.userID);
 
-    const pending = await this.ctx.store.collectPeers('pending');
+    const listed = edges.flatMap((edge) => {
+      const other = users.find((u) => u.userID === edge.otherUser);
 
-    return {
-      pending: pending.map((peer) => ({
-        userID: peer.userID,
-        login: peer.login,
-        displayName: peer.displayName,
-        firstSeen: peer.firstSeen,
-        lastSeen: peer.lastSeen,
-      })),
-    };
-  }
-
-  private async answerPeerApprove(msg: RequestMsg): Promise<Answer> {
-    this.requireAdmin();
-
-    const p = this.parse('peer.approve', msg);
-
-    if (p.alias !== '') {
-      if (!/^[a-z0-9][a-z0-9._-]*$/u.test(p.alias)) {
-        throw new RelayError(
-          'bad_args',
-          'an alias is lowercase letters, digits, dot, dash, or underscore',
-        );
+      if (other === undefined) {
+        return [];
       }
 
-      const taken = await this.ctx.store.findPeerByName(p.alias);
+      return [
+        {
+          person: formatPerson(other, users),
+          login: other.login,
+          displayName: other.displayName,
+          you: edge.you,
+          them: edge.them === 'accepted' ? 'accepted' : 'none',
+          decidedAt: edge.youAt,
+          knockedAt: edge.knockedAt,
+        },
+      ];
+    });
 
-      if (taken !== null && taken.userID !== p.userID) {
-        throw new RelayError('bad_args', `alias "${p.alias}" already names ${taken.login}`);
-      }
-    }
-
-    const alias = p.alias === '' ? undefined : p.alias;
-
-    const updated = await this.ctx.store.updatePeerStatus(p.userID, 'allowed', alias);
-
-    if (!updated) {
-      throw new RelayError('no_such_peer', `no peer with user id ${p.userID}`);
-    }
-
-    return { approved: p.userID };
+    return { edges: listed.toSorted((a, b) => a.person.localeCompare(b.person)) };
   }
 
-  private async answerPeerBlock(msg: RequestMsg): Promise<Answer> {
-    this.requireAdmin();
+  private async answerPeerAccept(msg: RequestMsg): Promise<Answer> {
+    const p = this.parse('peer.accept', msg);
 
-    const p = this.parse('peer.block', msg);
+    const peer = await this.resolvePeer(p.peer);
 
-    if (p.userID === this.peer.userID) {
-      throw new RelayError('bad_args', 'an admin cannot block themselves');
+    const now = this.ctx.now();
+    const me = this.user.userID;
+
+    const edge = await this.ctx.store.updateEdgeSide(me, peer.user.userID, 'accepted', now);
+
+    const open = edge.them === 'accepted';
+
+    if (open) {
+      const myPerson = formatPerson(this.user, peer.users);
+
+      const accepted = encodeMessage({
+        v: PROTOCOL_V,
+        ev: 'Accepted',
+        person: myPerson,
+        login: this.user.login,
+        displayName: this.user.displayName,
+      });
+
+      for (const session of this.ctx.presence.findSessions(peer.user.userID)) {
+        session.send(accepted);
+      }
+
+      await this.drainHeld(peer.user, peer.person, this.user, myPerson, now);
+      await this.drainHeld(this.user, myPerson, peer.user, peer.person, now);
     }
 
-    const updated = await this.ctx.store.updatePeerStatus(p.userID, 'blocked');
+    return { person: peer.person, login: peer.user.login, open };
+  }
 
-    if (!updated) {
-      throw new RelayError('no_such_peer', `no peer with user id ${p.userID}`);
-    }
+  private async answerPeerDecision(
+    msg: RequestMsg,
+    method: 'peer.decline' | 'peer.block',
+    state: SideState,
+  ): Promise<Answer> {
+    const p = this.parse(method, msg);
 
-    for (const session of this.ctx.presence.findSessions(p.userID)) {
-      this.ctx.presence.remove(session.connID);
-    }
+    const peer = await this.resolvePeer(p.peer);
 
-    return { blocked: p.userID };
+    await this.ctx.store.updateEdgeSide(this.user.userID, peer.user.userID, state, this.ctx.now());
+    await this.ctx.store.removeHeld(peer.user.userID, this.user.userID);
+
+    return { person: peer.person, login: peer.user.login };
   }
 
   private async answerMessageSend(msg: RequestMsg): Promise<Answer> {
@@ -321,17 +369,79 @@ export class RelayConnection {
 
     const result = await routeMessage(this.ctx, session, p.to, p.body);
 
-    return { id: result.id, to: result.to, status: result.status };
+    return {
+      ...(result.id === null ? {} : { id: result.id }),
+      to: result.to,
+      status: result.status,
+    };
   }
 
   private async answerMessageAck(msg: RequestMsg): Promise<Answer> {
-    this.requireAllowed();
-
     const p = this.parse('message.ack', msg);
 
     const acked = await this.ctx.store.updateDelivered(p.id, this.ctx.now());
 
     return { acked };
+  }
+
+  // A held message from one person to the other becomes a normal delivery once the pair is open.
+  private async drainHeld(
+    from: UserRecord,
+    fromPerson: string,
+    to: UserRecord,
+    toPerson: string,
+    now: number,
+  ): Promise<void> {
+    const held = await this.ctx.store.findHeld(from.userID, to.userID, now);
+
+    if (held === null) {
+      return;
+    }
+
+    await this.ctx.store.removeHeld(from.userID, to.userID);
+
+    const fromAddress = held.fromAddress === '' ? fromPerson : held.fromAddress;
+
+    await routeOpenMessage(
+      this.ctx,
+      {
+        userID: from.userID,
+        address: fromAddress,
+        login: from.login,
+        displayName: from.displayName,
+      },
+      {
+        user: to,
+        person: toPerson,
+        rest: held.toSession === '' ? null : held.toSession,
+        anySession: true,
+      },
+      held.body,
+      now,
+    );
+  }
+
+  private async resolvePeer(name: string): Promise<ResolvedPeer> {
+    const users = await this.ctx.store.collectUsers();
+
+    const match = findUserByName(users, name);
+
+    if (match.kind === 'none') {
+      throw new RelayError('no_such_peer', `nobody named "${name}" has connected`);
+    }
+
+    if (match.kind === 'ambiguous') {
+      throw new RelayError(
+        'ambiguous_peer',
+        `"${name}" names ${match.logins.length} people: ${match.logins.join(', ')}; use a login`,
+      );
+    }
+
+    if (match.user.userID === this.user.userID) {
+      throw new RelayError('bad_args', `"${name}" is you`);
+    }
+
+    return { user: match.user, person: formatPerson(match.user, users), users };
   }
 
   private parse<M extends RequestMethod>(method: M, msg: RequestMsg) {
@@ -344,25 +454,9 @@ export class RelayConnection {
     return parsed.data;
   }
 
-  private requireAllowed(): void {
-    if (this.peer.status === 'pending') {
-      throw new RelayError('peer_pending', 'this peer is waiting for an admin to approve it');
-    }
-  }
-
-  private requireAdmin(): void {
-    this.requireAllowed();
-
-    if (!this.peer.admin) {
-      throw new RelayError('unauthorized', 'only an admin can do that');
-    }
-  }
-
   // The session this connection registered with hello, which every send
   // is attributed to.
   private requireSession(): PeerSession {
-    this.requireAllowed();
-
     if (this.session === null) {
       throw new RelayError('unauthorized', 'send relay.hello with kind "session" first');
     }

@@ -2,6 +2,10 @@ import { z } from 'zod';
 import { buildDefaultedString } from '../shared/build-defaulted-string';
 import { MAX_BODY } from './protocol';
 
+const PEER_SCHEMA = z.object({
+  peer: z.string({ error: 'a person name or login is required' }).min(1),
+});
+
 export const REQUEST_PARAM_SCHEMAS = {
   'relay.hello': z.object({
     client: buildDefaultedString('unknown client'),
@@ -16,14 +20,10 @@ export const REQUEST_PARAM_SCHEMAS = {
     kind: z.preprocess((v) => (v === 'cli' ? v : 'session'), z.enum(['session', 'cli'])),
   }),
   'peer.list': z.object({}),
-  'peer.pending': z.object({}),
-  'peer.approve': z.object({
-    userID: z.string({ error: 'peer.approve requires a userID' }).min(1),
-    alias: buildDefaultedString(''),
-  }),
-  'peer.block': z.object({
-    userID: z.string({ error: 'peer.block requires a userID' }).min(1),
-  }),
+  'peer.edges': z.object({}),
+  'peer.accept': PEER_SCHEMA,
+  'peer.decline': PEER_SCHEMA,
+  'peer.block': PEER_SCHEMA,
   'message.send': z.object({
     to: z.string({ error: 'message.send requires a to address' }).min(1),
     body: z

@@ -13,8 +13,7 @@ const ERROR_CODES = [
   'bad_args',
   'no_such_peer',
   'ambiguous_peer',
-  'peer_pending',
-  'peer_blocked',
+  'not_accepted',
   'internal',
 ] as const;
 

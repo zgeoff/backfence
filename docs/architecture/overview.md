@@ -12,28 +12,30 @@ client claims about itself.
 claude ──stdio──> backfence channel ──ws──> backfence relay <──ws── backfence channel <──stdio── claude
                   (one per session)         (one per group)          (one per session)
                                               ├── tailscaled whois (identity)
-                                              └── SQLite (peers, queued messages)
+                                              └── SQLite (edges, held and queued messages)
 ```
 
 - **Channel.** Claude Code spawns one channel process per session as an MCP server over stdio. The
   channel declares the `claude/channel` capability, which makes Claude Code listen for
-  `notifications/claude/channel` events from it, and registers the five backfence tools. It holds
-  one WebSocket to the relay for the life of the session, redialing with backoff when it drops.
+  `notifications/claude/channel` events from it, and registers the six backfence tools. It holds one
+  WebSocket to the relay for the life of the session, redialing with backoff when it drops.
 - **Relay.** One Bun process bound to a tailnet address. On every new socket it asks tailscaled who
-  owns the peer address, records the peer, and only then lets the connection speak. It keeps the
-  roster of connected sessions in memory and the allowlist and offline queue in SQLite.
+  owns the peer address and only then lets the connection speak. It keeps the roster of connected
+  sessions in memory and the consent edges, held messages, and offline queue in SQLite.
 - **Identity.** The relay calls the Tailscale LocalAPI `whois` endpoint over tailscaled's unix
   socket with the connection's remote address. The response carries the user's stable id, login, and
   display name, the node's stable id, and any application capabilities the tailnet policy grants
-  that peer. The user id keys every allowlist decision.
+  that peer. The user id keys every consent decision; the display name and node name become the
+  person and device parts of an address.
 
 ## A message's path
 
 1. Claude calls `backfence_send_message` with an address and a body.
 2. The channel sends `message.send` to the relay.
-3. The relay resolves the address: the peer part by alias then login, the session part against the
-   roster. It writes the message row first, then, when the target session is connected, sends it a
-   `Message` event. Otherwise the row waits.
+3. The relay resolves the address: the person part by derived name or login, the session part
+   against the roster. When the pair is not open it holds the message and knocks instead. Otherwise
+   it writes the message row first, then, when the target session is connected, sends it a `Message`
+   event. Otherwise the row waits.
 4. The target channel receives the event, emits a `notifications/claude/channel` notification with
    the body as content and the sender as meta, then acks the message id.
 5. Claude Code injects the event into the session as a new turn. An idle session wakes.
@@ -45,12 +47,16 @@ claude ──stdio──> backfence channel ──ws──> backfence relay <─
 Three gates stand between a foreign account and a session:
 
 - **Identity** is resolved, never claimed. A client sends no credentials; the relay asks tailscaled.
-- **The allowlist** is a per-peer status: `allowed`, `pending`, or `blocked`. A peer the relay has
-  not seen is held as pending under the `knock` policy or dropped under `refuse`. Only an admin can
-  approve or block, and admin rights come from the relay's config, not from a request.
+  The tailnet is the allowlist: anyone tailscaled identifies may connect.
+- **Consent** is pairwise and mutual. A first message to a person becomes a knock that carries the
+  sender's identity and nothing else; the body waits on the relay until the receiver accepts. The
+  receiver's Claude is told to raise the knock with its owner, and the accept tool runs behind
+  Claude Code's permission prompt, so the decision is the owner's. A decline or block looks like a
+  knock still waiting from the sender's side. The rules are in the
+  [wire protocol](./protocol.md#consent).
 - **Delivery** marks the content as untrusted in the channel's instructions to Claude. Claude Code's
   permission prompts apply to whatever Claude does in response, exactly as they would for any other
   input.
 
 The relay reads no transcripts and runs no commands. It holds message bodies only while they wait
-for an offline session.
+for an offline session or an unanswered knock.

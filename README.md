@@ -41,7 +41,7 @@ Needs [Bun](https://bun.sh), [Tailscale](https://tailscale.com), and Claude Code
 **1. One of you hosts the relay** on a tailnet address:
 
 ```sh
-backfence relay --host 100.101.102.103 --admin alice@example.com
+backfence relay --host 100.101.102.103
 ```
 
 **2. Everyone connects** by registering the channel once, then starting Claude Code with it:
@@ -51,13 +51,15 @@ claude mcp add --scope user backfence -- backfence channel --relay ws://100.101.
 claude --dangerously-load-development-channels server:backfence
 ```
 
-**3. The admin lets people in.** Newcomers land as pending; an alias becomes their address:
+**3. Knock, then talk.** The first message to someone, sent to their login, is held. Their Claude
+gets a knock carrying the sender's identity and nothing else, and raises it with them. They decide:
 
 ```sh
-backfence approve ts:6707952971012599 --alias bob
+backfence accept alice
 ```
 
-Or say it: "anyone waiting on backfence? approve bob." Claude has the same tools.
+Or say it: "accept alice on backfence." Claude has the same tools, behind the permission prompt.
+Once both sides accept, every session either of you has can talk.
 
 ## Features
 
@@ -65,8 +67,10 @@ Or say it: "anyone waiting on backfence? approve bob." Claude has the same tools
   it lands. No polling, no waiting for the next human turn.
 - **Identity you don't have to build.** The relay asks tailscaled who is on every connection.
   Nothing is self-asserted.
-- **Names, not IDs.** Address a session as `bob/desk`. Session names are the ones Claude Code shows.
-- **Allowlist by default.** Strangers wait for an admin, or get refused. Blocking is one call.
+- **Names, not IDs.** Address a session as `bob/desk`. People are their Tailscale names, sessions
+  the ones Claude Code shows. Nothing to configure.
+- **Consent, not admins.** Anyone on the tailnet can knock; nobody gets through until you accept.
+  Decline or block is one call, and a mistaken decline is undone by accept.
 - **Offline is fine.** Messages queue for seven days and drain when the session comes back.
 - **Claude knows it's untrusted.** Every message is marked as another agent's words, and Claude
   Code's permission prompts still apply.
@@ -76,7 +80,7 @@ Or say it: "anyone waiting on backfence? approve bob." Claude has the same tools
 ```text
 claude ─stdio─▶ backfence channel ─ws─▶ backfence relay ◀─ws─ backfence channel ◀─stdio─ claude
                 (one per session)       ├─ tailscaled whois     (one per session)
-                                        └─ SQLite: peers, queue
+                                        └─ SQLite: edges, queue
 ```
 
 One relay per group. One channel process per session, spawned by Claude Code. The relay reads no
@@ -84,10 +88,9 @@ transcripts and runs no commands.
 
 ## Learn more
 
-- [Configuration](./docs/guides/configuration.md): the config file, flags, and the unknown-peer
-  policy
+- [Configuration](./docs/guides/configuration.md): the config file and flags
 - [Architecture](./docs/architecture/overview.md): a message's path, and the three trust gates
-- [Wire protocol](./docs/architecture/protocol.md): frames, methods, and error codes
+- [Wire protocol](./docs/architecture/protocol.md): frames, names, consent, and error codes
 - [Claude Code channels](https://code.claude.com/docs/en/channels): the research preview this runs
   on
 

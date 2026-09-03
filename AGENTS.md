@@ -162,10 +162,10 @@ documents config.
 Single package, no workspaces. `src/` groups its modules by concern, each one primary export per
 file: `relay/` owns the server, the per-connection dispatch, the roster, and routing; `channel/` is
 the MCP server and its client connection to the relay; `identity/` resolves who a connection belongs
-to; `store/` is the SQLite peer and queue store and its migrations; `protocol/` is the wire format;
-`shared/` holds config and small helpers used across `src/`. `cli.ts` is the CLI entrypoint. `test/`
-holds the relay end-to-end suite and the helpers it shares; `bin/backfence` is the executable shim.
-`scripts/` holds repo tooling, not app code.
+to; `store/` is the SQLite store for users, consent edges, held and queued messages, and its
+migrations; `protocol/` is the wire format; `shared/` holds config and small helpers used across
+`src/`. `cli.ts` is the CLI entrypoint. `test/` holds the relay end-to-end suite and the helpers it
+shares; `bin/backfence` is the executable shim. `scripts/` holds repo tooling, not app code.
 
 ## Runtime rules
 
@@ -184,18 +184,18 @@ holds the relay end-to-end suite and the helpers it shares; `bin/backfence` is t
   session registry. It never reads a transcript.
 - Meta keys on a channel event are identifiers: letters, digits, and underscores only. Claude Code
   drops any other key without an error.
-- State lives in `~/.local/state/backfence/backfence.db` (SQLite: peers, queued messages) and config
-  in `~/.config/backfence/config.json`.
+- State lives in `~/.local/state/backfence/backfence.db` (SQLite: users, edges, held and queued
+  messages) and config in `~/.config/backfence/config.json`.
 
 ## Function naming — project verbs
 
 Project additions to the shared taxonomy (keep in sync with `zgeoff/function-verb` in
-`.oxlintrc.json`): `ack`, `answer`, `approve`, `block`, `deliver`, `dispose`, `open`, `refuse`,
-`route`, `log`, `mint`.
+`.oxlintrc.json`): `answer`, `deliver`, `dispose`, `open`, `refuse`, `route`, `log`, `mint`.
 
 `answer` builds the response to one protocol request; `route` picks where a message goes and puts it
-there; `deliver` hands an inbound message to Claude Code; `refuse` turns a connection away with a
-code and reason; `mint` generates an id backfence is the sole authority for.
+there, or holds it and knocks when the pair is not open; `deliver` hands an inbound event to Claude
+Code; `refuse` turns a connection away with a code and reason; `mint` generates an id backfence is
+the sole authority for.
 
 `init`, `acquireConnection`, `beginTransaction`, `commitTransaction`, `rollbackTransaction`,
 `releaseConnection`, and `destroy` are exempt: kysely's `Driver` interface fixes these method names.

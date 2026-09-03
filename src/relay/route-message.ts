@@ -1,10 +1,13 @@
-import { PROTOCOL_V } from '../protocol/protocol';
+import { encodeMessage } from '../protocol/protocol';
 import { RelayError } from '../protocol/relay-error';
 import type { PeerStore } from '../store/peer-store';
+import { buildKnockEvent } from './build-knock-event';
+import { findUserByName } from './find-user-by-name';
 import { formatAddress } from './format-address';
-import { mintMessageID } from './mint-message-id';
+import { formatPerson } from './format-person';
 import { parseAddress } from './parse-address';
 import type { PeerSession, Presence } from './presence';
+import { MESSAGE_TTL_MS, routeOpenMessage } from './route-open-message';
 
 export interface RouteContext {
   readonly store: PeerStore;
@@ -13,15 +16,17 @@ export interface RouteContext {
 }
 
 export interface RouteResult {
-  readonly id: string;
+  readonly id: string | null;
   readonly to: string;
-  readonly status: 'delivered' | 'queued';
+  readonly status: 'delivered' | 'queued' | 'knocked';
 }
 
-const MESSAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// A declined person may be knocked again, and an unanswered knock repeated, after this long.
+const KNOCK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-// The row exists before anything goes on the wire, so a crash between the write and the send
-// redelivers rather than loses.
+// Sending is the sender's consent. Until the receiver's side is accepted the body stays on the
+// relay, and the sender sees the same answer whether the receiver is undecided, declined, or
+// blocked.
 export async function routeMessage(
   ctx: RouteContext,
   from: PeerSession,
@@ -31,61 +36,106 @@ export async function routeMessage(
   const address = parseAddress(to);
 
   if (address === null) {
-    throw new RelayError('bad_args', `"${to}" is not a peer/session address`);
+    throw new RelayError('bad_args', `"${to}" is not a person/session address`);
   }
 
-  const target = await ctx.store.findPeerByName(address.peer);
+  const users = await ctx.store.collectUsers();
 
-  if (target === null || target.status !== 'allowed') {
-    throw new RelayError('no_such_peer', `no peer named "${address.peer}"`);
+  const match = findUserByName(users, address.person);
+
+  if (match.kind === 'none') {
+    throw new RelayError('no_such_peer', `nobody named "${address.person}" has connected`);
   }
 
-  const sessions = ctx.presence.findSessions(target.userID, address.session ?? undefined);
-
-  if (address.session === null && sessions.length > 1) {
-    const names = sessions.map((s) => s.sessionName).join(', ');
-
+  if (match.kind === 'ambiguous') {
     throw new RelayError(
       'ambiguous_peer',
-      `${address.peer} has ${sessions.length} sessions: ${names}; address one by name`,
+      `"${address.person}" names ${match.logins.length} people: ${match.logins.join(', ')}; address one by login`,
     );
   }
 
-  const [session] = sessions;
+  const me = from.user.userID;
+  const target = match.user;
+  const person = formatPerson(target, users);
   const now = ctx.now();
-  const id = mintMessageID(now);
-  const fromAddress = formatAddress(from.peer, from.sessionName);
-  const toSession = session?.sessionName ?? address.session ?? '';
+  const senderPerson = formatPerson(from.user, users);
+  const senderAddress = formatAddress(senderPerson, from, ctx.presence.findSessions(me));
 
-  await ctx.store.writeMessage({
-    id,
-    fromUser: from.peer.userID,
-    fromAddress,
+  const sender = {
+    userID: me,
+    address: senderAddress,
+    login: from.user.login,
+    displayName: from.user.displayName,
+  };
+
+  if (target.userID === me) {
+    return routeOpenMessage(ctx, sender, { user: target, person, rest: address.rest }, body, now);
+  }
+
+  let edge = await ctx.store.findEdge(me, target.userID);
+
+  if (edge.you === 'declined' || edge.you === 'blocked') {
+    throw new RelayError('not_accepted', `you ${edge.you} ${person}; accept them to reopen`);
+  }
+
+  // A knock always records its time, a pre-accept never does: that is how an unanswered knock
+  // from them is told apart from an invitation the sender may take up by sending.
+  if (edge.you === 'none' && edge.them === 'accepted' && edge.knockedAt !== null) {
+    throw new RelayError('not_accepted', `${person} is waiting for your accept`);
+  }
+
+  if (edge.you === 'none') {
+    edge = await ctx.store.updateEdgeSide(me, target.userID, 'accepted', now);
+  }
+
+  if (edge.them === 'accepted') {
+    return routeOpenMessage(ctx, sender, { user: target, person, rest: address.rest }, body, now);
+  }
+
+  if (edge.them === 'blocked') {
+    return { id: null, to: person, status: 'knocked' };
+  }
+
+  const declineStale = edge.themAt !== null && now - edge.themAt > KNOCK_INTERVAL_MS;
+
+  if (edge.them === 'declined' && declineStale) {
+    edge = await ctx.store.updateEdgeSide(target.userID, me, 'none', now);
+    edge = await ctx.store.findEdge(me, target.userID);
+  }
+
+  await ctx.store.writeHeld({
+    fromUser: me,
     toUser: target.userID,
-    toSession,
+    fromAddress: senderAddress,
+    fromSession: from.sessionName,
+    fromNode: from.device,
+    toSession: address.rest ?? '',
     body,
     createdAt: now,
     expiresAt: now + MESSAGE_TTL_MS,
   });
 
-  const toAddress = toSession === '' ? address.peer : formatAddress(target, toSession);
+  const knockStale = edge.knockedAt === null || now - edge.knockedAt > KNOCK_INTERVAL_MS;
 
-  if (session === undefined) {
-    return { id, to: toAddress, status: 'queued' };
+  if (edge.them === 'none' && knockStale) {
+    const knock = encodeMessage(
+      buildKnockEvent({
+        from: senderAddress,
+        person: senderPerson,
+        login: from.user.login,
+        displayName: from.user.displayName,
+        node: from.device,
+        sessionName: from.sessionName,
+        knockedAt: now,
+      }),
+    );
+
+    for (const session of ctx.presence.findSessions(target.userID)) {
+      session.send(knock);
+    }
+
+    await ctx.store.updateKnockedAt(me, target.userID, now);
   }
 
-  session.send(
-    JSON.stringify({
-      v: PROTOCOL_V,
-      ev: 'Message',
-      id,
-      from: fromAddress,
-      fromUser: from.peer.login,
-      fromName: from.peer.displayName,
-      body,
-      sentAt: now,
-    }),
-  );
-
-  return { id, to: toAddress, status: 'delivered' };
+  return { id: null, to: person, status: 'knocked' };
 }

@@ -10,7 +10,7 @@ export interface ConnectionOrigin {
 export const TAILSCALE_SOCKET = '/var/run/tailscale/tailscaled.sock';
 
 // In tailscale mode the answer comes from tailscaled's whois for the peer's address, so a client
-// can never claim an identity; dev mode trusts two request headers, for tests only.
+// can never claim an identity; dev mode trusts request headers, for tests only.
 export async function resolvePrincipal(
   origin: ConnectionOrigin,
   mode: IdentityMode,
@@ -49,12 +49,14 @@ function resolveDevPrincipal(headers: Readonly<Headers>): Principal | null {
     return null;
   }
 
+  const nodeName = headers.get('x-backfence-dev-node') ?? 'dev';
+
   return {
     userID: `dev:${login}`,
     login,
     displayName: headers.get('x-backfence-dev-name') ?? login,
-    nodeID: 'dev',
-    nodeName: 'dev',
+    nodeID: `dev-${nodeName}`,
+    nodeName,
     caps: {},
   };
 }

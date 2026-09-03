@@ -1,6 +1,17 @@
-import type { PeerRecord } from '../store/peer-store';
+import type { PeerSession } from './presence';
 
-// A peer's public name is its alias when an admin set one, else its login.
-export function formatAddress(peer: PeerRecord, sessionName: string): string {
-  return `${peer.alias ?? peer.login}/${sessionName}`;
+// The short form is person/session; when another of the person's sessions shares the name, the
+// device goes in the middle so each is addressable.
+export function formatAddress(
+  person: string,
+  session: PeerSession,
+  siblings: readonly PeerSession[],
+): string {
+  const shared = siblings.some(
+    (s) => s.connID !== session.connID && s.sessionName === session.sessionName,
+  );
+
+  return shared
+    ? `${person}/${session.device}/${session.sessionName}`
+    : `${person}/${session.sessionName}`;
 }
