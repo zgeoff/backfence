@@ -1,49 +1,104 @@
-<!-- Generated file — do not edit. Edit agents/project.md here, or agents/shared.md in zgeoff/tools. -->
-
 # Agent Guidelines
 
-## Operations
+backfence lets Claude Code sessions on different accounts message each other over a tailnet. A relay
+(`backfence relay`) identifies every connection through Tailscale and routes by name. A channel
+(`backfence channel`) is the MCP server that Claude Code spawns for each session: it gives Claude
+the messaging tools and injects inbound messages as channel events.
 
-- AGENTS.md is generated from `agents/shared.md` and `agents/project.md` — edit the partials, never
-  AGENTS.md itself. The shared partial is synced from
-  [zgeoff/tools](https://github.com/zgeoff/tools); cross-project rule changes belong there.
-- Perform all work on a branch in a git worktree under `.worktrees/` (e.g.
-  `git worktree add .worktrees/<branch> -b <branch>`) — never commit directly on `main`.
-- Use [Conventional Commits](https://www.conventionalcommits.org/) for all commit messages.
-- A squash merge makes the PR title the commit subject, so a PR title is a Conventional Commit too.
-  `feat(#412): add the retry budget` is a title; `add the retry budget` is not.
-- Commit subjects and PR titles use the imperative mood ("add X", never "added X" or a bare noun
-  phrase).
-- Open PRs against `main` using the PR template (`.github/PULL_REQUEST_TEMPLATE.md`). Descriptions
-  are condensed: lead paragraph ≤2 sentences, one-line bullets, ≤150 words — write the short version
-  first, don't draft long and trim.
-- After pushing, link the PR URL in your response.
-- A PR is ready only when its checks are green: watch CI (`gh pr checks <n> --watch`) after opening
-  or updating, and report a failure with what you're doing about it.
+## Required reading
+
+The rules a task needs are not repeated here. Load the skill for the work before starting it.
+
+| Skill          | Load before                                                                 |
+| -------------- | --------------------------------------------------------------------------- |
+| `docs-writing` | writing or editing any committed prose: `docs/`, READMEs, this file, skills |
+| `testing`      | designing, writing, or reviewing tests                                      |
+
+`docs/architecture/overview.md` explains how the relay, the channel and the store fit together. The
+README covers install and use, and `docs/guides/configuration.md` covers config.
+
+## Repo structure
+
+backfence is one Bun package, with no workspaces.
+
+```text
+src/
+  relay/       the server, the dispatch for each connection, the roster, and routing
+  channel/     the MCP server and its client connection to the relay
+  identity/    resolves who a connection belongs to
+  store/       the SQLite store for users, consent edges, held and queued messages, and its
+               migrations
+  protocol/    the wire format
+  shared/      config and small helpers that the other folders share
+  cli.ts       the CLI entrypoint
+test/          the relay end-to-end suite and the helpers it shares
+bin/backfence  the executable shim
+scripts/       repo tooling, never app code
+docs/
+  architecture/  how the pieces fit
+  guides/        steps a user does
+```
+
+## Commands
+
+- Bun only. Run tests with `bun test`, never vitest or jest. Run a file with `bun <file>`, never
+  node or ts-node.
+- Everything the hooks and CI run is a root `package.json` script. Invoke each gate by its script
+  name, never by spelling out the command under it.
+- lefthook runs the fixers, commitlint and gitleaks before a commit, and the full gates before a
+  push.
+
+## Runtime rules
+
+- The relay never trusts what a client says about who it is. Identity comes from the tailscaled
+  `whois` lookup for the connection's address. Only in `dev` mode does it come from request headers.
+
+## Integration contract
+
+- The channel is a Claude Code channel: an MCP server over stdio that declares the `claude/channel`
+  capability and emits `notifications/claude/channel`. Claude Code owns the process lifetime.
+- The channel reads its session from the environment that Claude Code gives every MCP server
+  (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_PROJECT_DIR`). It reads the session name from the Claude Code
+  session registry, unless `BACKFENCE_SESSION_NAME` sets one. It never reads a transcript.
+- Meta keys on a channel event are identifiers: letters, digits and underscores only. Claude Code
+  drops any other key without an error.
+- State lives in `~/.local/state/backfence/backfence.db` and config in
+  `~/.config/backfence/config.json`.
 
 ## Code style
 
-Mechanically enforced rules (oxfmt, oxlint, format-codemod) aren't repeated here — this file covers
-what tooling can't check.
+oxfmt, oxlint and format-codemod enforce the mechanical rules, so this section covers only what
+tooling can't check.
 
 - One primary export per file, and the file name kebab-cases that export (`with-jest-context.ts`
-  exports `withJestContext`). Exceptions: `index.ts` entrypoints, `types.ts` for a package's shared
-  types, and side-effect-only modules, which are named for what they do (`augment-bun-test.ts`).
-- Module order: imports, the primary export, then private helpers in composition order (depth-first)
-  — never helpers first. Supporting declarations (consts, interfaces, type aliases) sit directly
-  above their first use, never below it and never leading the file; types for the primary export's
-  signature may sit just above it.
+  exports `withJestContext`). Three exceptions:
+  - `index.ts` entrypoints
+  - `types.ts` for a package's shared types
+  - side-effect-only modules, named for what they do (`augment-bun-test.ts`)
+- Module order: imports, the primary export, then private helpers in composition order, depth first.
+  Never put helpers first.
+- A supporting declaration (a const, an interface, a type alias) sits directly above its first use,
+  never below it and never at the top of the file. Types for the primary export's signature may sit
+  just above it.
 - Acronyms stay uppercase in identifiers (`runCLI`, `parseCLIArgs`, `ASTNode`, `pkgURL`,
-  `isPackageJSON`) — except when one starts a camelCase name, where it lowercases whole (`cliPath`,
-  `astNode`). ID counts as an acronym: `userID`, `sessionID` — never `userId` — and `idToken` when
-  it starts a name. File names are unaffected: kebab-case lowercases everything (`parse-cli-args.ts`
-  exports `parseCLIArgs`).
+  `isPackageJSON`). One exception: an acronym that starts a camelCase name lowercases whole
+  (`cliPath`, `astNode`).
+- ID counts as an acronym: `userID`, `sessionID`, never `userId`, and `idToken` when it starts a
+  name. File names kebab-case everything (`parse-cli-args.ts` exports `parseCLIArgs`).
+
+### Comments
+
+- No JSDoc. A comment is a run of at most three `//` lines. It holds only what neither the code, a
+  type, a test name nor the subsystem doc can hold: the reason a line does the non-obvious thing.
+- A comment describes the code as it is, never how it got that way or what is planned.
+- Never refer to another declaration by name in a comment, because a rename strands the reference.
+  Describe the behavior instead.
 
 ### Function naming
 
-Every function name starts with a prefix from the closed list below: pick from it, or extend this
-file in the same PR that introduces the new verb. The prefix is a contract — a reader should know
-the function's shape without opening it.
+Every function name starts with a prefix from the closed list below. The `zgeoff/function-verb` lint
+rule enforces the list. The prefix is a contract: a reader knows the function's shape without
+opening it.
 
 **Predicates** — return boolean, no side effects:
 
@@ -126,7 +181,7 @@ the function's shape without opening it.
 | `with<X>` | HOF that runs a callback inside a context | `withJestContext` |
 | `make<X>` | factory whose result is itself a function | `makeExcluder`    |
 
-**Framework conventions** — where the ecosystem's prefix is load-bearing, it wins:
+**Framework conventions** — where an ecosystem tool or idiom fixes the prefix, it wins:
 
 | Prefix                   | Contract                                                                                                                | Example          |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ---------------- |
@@ -143,88 +198,34 @@ it does), `execute` (→ `run`), `compute` (→ `build`), `fetch` (→ `read`), 
 Algorithm-native vocabulary (`walk`, `backtrack`, `slideDiagonal`) is allowed inside the module
 implementing that algorithm — forcing list verbs onto textbook terms hides the algorithm.
 
-## Dependencies
+#### Project verbs
 
-- Pin exact versions — no `^`/`~` ranges. (`bun add` saves exact automatically via `exact = true` in
-  bunfig.toml — the rule applies to hand-written edits.)
+backfence adds these verbs to the shared list. To add another, write it here and in the `verbs`
+option of `zgeoff/function-verb` in `.oxlintrc.json`, in the PR that first uses it.
 
-# backfence
+- `answer`: build the result of one MCP tool call.
+- `deliver`: hand an inbound event to Claude Code.
+- `dispose`: release what a long-lived object holds, such as a socket or a database handle.
+- `log`: write one diagnostic line to stderr.
+- `mint`: generate an ID that backfence is the sole authority for.
+- `open`: dial a connection and return it once it is live.
+- `refuse`: turn a connection away with a code and a reason.
+- `route`: pick where a message goes and put it there, or hold it and knock when the pair is not
+  open.
 
-backfence lets Claude Code sessions on different accounts message each other over a tailnet. A relay
-(`backfence relay`) identifies every connection through Tailscale and routes by name; a channel
-(`backfence channel`) is the MCP server Claude Code spawns per session, which gives Claude the
-messaging tools and injects inbound messages as channel events. See `docs/architecture/overview.md`
-for how the pieces fit; the README documents install and use, and `docs/guides/configuration.md`
-documents config.
+#### Exempt names
 
-## Layout
+The `exemptNames` option in `.oxlintrc.json` lists these names:
 
-Single package, no workspaces. `src/` groups its modules by concern, each one primary export per
-file: `relay/` owns the server, the per-connection dispatch, the roster, and routing; `channel/` is
-the MCP server and its client connection to the relay; `identity/` resolves who a connection belongs
-to; `store/` is the SQLite store for users, consent edges, held and queued messages, and its
-migrations; `protocol/` is the wire format; `shared/` holds config and small helpers used across
-`src/`. `cli.ts` is the CLI entrypoint. `test/` holds the relay end-to-end suite and the helpers it
-shares; `bin/backfence` is the executable shim. `scripts/` holds repo tooling, not app code.
-
-## Runtime rules
-
-- Bun only. `bun test`, never vitest or jest. `bun <file>`, never node or ts-node.
-- The relay never trusts a client's claim about who it is. Identity comes from tailscaled's `whois`
-  for the connection's address, or from request headers only in `dev` mode.
-- Everything the hooks and CI run is a root `package.json` script; invoke gates by script name,
-  never by re-spelling the underlying command.
-
-## Integration contract
-
-- The channel is a Claude Code channel: an MCP server over stdio that declares the `claude/channel`
-  capability and emits `notifications/claude/channel`. Claude Code owns the process lifetime.
-- The channel reads its session from the environment Claude Code gives every MCP server
-  (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_PROJECT_DIR`) and its session name from Claude Code's own
-  session registry. It never reads a transcript.
-- Meta keys on a channel event are identifiers: letters, digits, and underscores only. Claude Code
-  drops any other key without an error.
-- State lives in `~/.local/state/backfence/backfence.db` (SQLite: users, edges, held and queued
-  messages) and config in `~/.config/backfence/config.json`.
-
-## Function naming — project verbs
-
-Project additions to the shared taxonomy (keep in sync with `zgeoff/function-verb` in
-`.oxlintrc.json`): `answer`, `deliver`, `dispose`, `open`, `refuse`, `route`, `log`, `mint`.
-
-`answer` builds the response to one protocol request; `route` picks where a message goes and puts it
-there, or holds it and knocks when the pair is not open; `deliver` hands an inbound event to Claude
-Code; `refuse` turns a connection away with a code and reason; `mint` generates an id backfence is
-the sole authority for.
-
-`init`, `acquireConnection`, `beginTransaction`, `commitTransaction`, `rollbackTransaction`,
-`releaseConnection`, and `destroy` are exempt: kysely's `Driver` interface fixes these method names.
-
-## Comments
-
-- No JSDoc. A comment is a run of at most three `//` lines holding only what neither the code, a
-  type, a test name, nor the subsystem doc can hold: the reason a line does the non-obvious thing.
-- No history or project state in comments — a comment describes the code as it is, never how it got
-  that way or what is planned.
-- Comments never name other declarations: renames strand the reference. Describe the behavior
-  instead.
-
-## Writing
-
-- All committed prose follows the `docs-writing` skill; run its `check-prose.sh` over touched docs
-  before committing.
-
-## Testing
-
-Testing conventions live in the `testing` skill (`.claude/skills/testing/SKILL.md`). Two rules worth
-restating here: never spawn the real `claude` binary in tests (verification against real Claude Code
-happens manually before merging changes to the integration contract), and every gate is invoked as a
-root package script.
+- `main`: the entrypoint convention.
+- `init`, `acquireConnection`, `beginTransaction`, `commitTransaction`, `rollbackTransaction`,
+  `releaseConnection` and `destroy`: the kysely `Driver` interface fixes these method names.
 
 ## Dependencies
 
-- Exact pins only (bunfig `exact = true`); the 7-day `minimumReleaseAge` gate applies. When the
-  latest version is younger than the gate, pin the newest version that passes — don't add exclusions
-  for convenience.
-- A dependency knip can't see gets its `knip.json` ignore entry in the same PR that introduces it,
-  with the reason in the PR description.
+- Pin exact versions, with no `^` or `~` ranges. `bun add` saves exact versions (`exact = true` in
+  `bunfig.toml`), so the rule covers hand-written edits.
+- `bunfig.toml` holds back any version published less than 7 days ago. When the latest version is
+  younger than that, pin the newest version that passes. Never add an exclusion for convenience.
+- A dependency that knip can't see gets its `knip.json` ignore entry in the PR that adds it, with
+  the reason in the PR description.
